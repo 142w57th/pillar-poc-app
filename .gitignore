@@ -23,7 +23,6 @@ pnpm-debug.log*
 .env*.local
 
 # local storage
-src/server/.store/
 src/server/.env
 
 # typescript
