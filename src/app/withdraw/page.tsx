@@ -38,10 +38,6 @@ function formatAccountTypeLabel(value: string) {
     .join(" ");
 }
 
-type WithdrawalAccount = DashboardAccountsPayload["accounts"][number] & {
-  totalCashAvailalableForWithdrawal?: number;
-};
-
 export default function WithdrawPage() {
   const [sourceAccountId, setSourceAccountId] = useState("");
   const [amountInput, setAmountInput] = useState("");
@@ -99,7 +95,7 @@ export default function WithdrawPage() {
   }, [accounts, hasAccounts, sourceAccountId]);
 
   const selectedAccount = useMemo(
-    () => accounts.find((account) => account.accountId === sourceAccountId) as WithdrawalAccount | undefined,
+    () => accounts.find((account) => account.accountId === sourceAccountId),
     [accounts, sourceAccountId],
   );
   const {
@@ -124,10 +120,7 @@ export default function WithdrawPage() {
   });
   const selectedAccountDetails = selectedAccountDetailsData?.accounts[0];
 
-  const availableForWithdrawal =
-    selectedAccountDetails?.totalCashAvailalableForWithdrawal ??
-    selectedAccountDetails?.cashAvailableForWithdrawal ??
-    0;
+  const availableForWithdrawal = selectedAccountDetails?.cashAvailableForWithdrawal ?? 0;
 
   const isAmountTooHigh = amountUsd > availableForWithdrawal;
   const isAmountInvalid = amountUsd <= 0;
@@ -221,7 +214,7 @@ export default function WithdrawPage() {
         </select>
 
         <p className="text-app-secondary mt-2 text-xs">
-          totalCashAvailalableForWithdrawal: <span className="text-app-primary font-semibold">{formatCurrency(availableForWithdrawal)}</span>
+          Available for withdrawal: <span className="text-app-primary font-semibold">{formatCurrency(availableForWithdrawal)}</span>
         </p>
 
         <div className="mt-4">
