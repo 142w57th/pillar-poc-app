@@ -1,0 +1,102 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+
+import { apiFetch } from "@/lib/api-client";
+import { ApiResponse, DashboardPayload } from "@/types/api";
+
+const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+export default function TransferPage() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["dashboard", DASHBOARD_USER_ID],
+    queryFn: async () => {
+      const response = await apiFetch<ApiResponse<DashboardPayload>>(
+        `/api/v1/dashboard?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
+      );
+
+      if (!response.success) {
+        throw new Error(response.error.message);
+      }
+
+      return response.data;
+    },
+    staleTime: 60_000,
+  });
+
+  const buyingPower = data?.aggregated.buyingPower ?? 0;
+  const cashAvailableForWithdrawal = data?.aggregated.cashAvailableForWithdrawal ?? 0;
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 pb-10">
+      <section className="border-app bg-surface-1 overflow-hidden rounded-2xl border shadow-sm">
+        <header className="border-app-soft flex items-center gap-3 border-b px-5 py-4">
+          <Link
+            href="/"
+            className="text-app-primary inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:bg-surface-2"
+            aria-label="Back to dashboard"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-5 w-5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M15 18L9 12L15 6" />
+            </svg>
+          </Link>
+          <h1 className="text-app-primary min-w-0 truncate text-sm font-semibold">Transfer funds</h1>
+        </header>
+      </section>
+
+      <section className="border-app bg-surface-1 rounded-2xl border p-5 shadow-sm @md:p-6">
+        <h2 className="text-app-primary text-xl font-semibold">Transfer</h2>
+        <p className="text-app-secondary mt-1 text-sm">Move money in or out of your account.</p>
+
+        {isLoading ? <p className="text-app-secondary mt-4 text-sm">Loading balances...</p> : null}
+        {isError ? <p className="text-negative mt-4 text-sm">Unable to load balances right now.</p> : null}
+
+        <div className="mt-4 space-y-3">
+          <article className="border-app bg-surface-2 rounded-xl border p-4">
+            <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Buying Power</p>
+            <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(buyingPower)}</p>
+          </article>
+
+          <article className="border-app bg-surface-2 rounded-xl border p-4">
+            <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Cash Available for Withdrawal</p>
+            <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(cashAvailableForWithdrawal)}</p>
+          </article>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 @sm:grid-cols-2">
+          <Link
+            href="/deposit"
+            className="bg-app-accent text-app-accent-contrast inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition hover:opacity-90"
+          >
+            Deposit
+          </Link>
+          <Link
+            href="/withdraw"
+            className="border-app bg-surface-1 text-app-primary inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 text-sm font-semibold transition hover:opacity-90"
+          >
+            Withdraw
+          </Link>
+        </div>
+      </section>
+    </div>
+  );
+}

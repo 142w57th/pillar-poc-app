@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+It's a mobile first application. Always take care of mobile responsiveness
+Keep updating the documentation with the changes you are doing (if you think it's needed then only)
+Also, make sure to follow standard pattern so that changing theme, font and all stuffs is straight forward

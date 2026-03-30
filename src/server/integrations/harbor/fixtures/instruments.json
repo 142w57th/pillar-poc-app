@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "source": "mock",
+    "version": "2026-03-27",
+    "generatedAt": "2026-03-27T00:00:00.000Z"
+  },
+  "instruments": [
+    { "symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "MSFT", "name": "Microsoft Corporation", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "NVDA", "name": "NVIDIA Corporation", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "META", "name": "Meta Platforms, Inc.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "TSLA", "name": "Tesla, Inc.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "AMZN", "name": "Amazon.com, Inc.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "SPOT", "name": "Spotify Technology S.A.", "exchange": "NYSE", "assetClass": "Equity" },
+    { "symbol": "ASML", "name": "ASML Holding N.V.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "NFLX", "name": "Netflix, Inc.", "exchange": "NASDAQ", "assetClass": "Equity" },
+    { "symbol": "BTC/USD", "name": "Bitcoin / US Dollar", "exchange": "CRYPTO", "assetClass": "Crypto" },
+    { "symbol": "ETH/USD", "name": "Ethereum / US Dollar", "exchange": "CRYPTO", "assetClass": "Crypto" },
+    { "symbol": "SOL/USD", "name": "Solana / US Dollar", "exchange": "CRYPTO", "assetClass": "Crypto" },
+    {
+      "symbol": "BJPWIN2029",
+      "name": "Will BJP win 2029 election?",
+      "exchange": "PREDICTION",
+      "assetClass": "Event Contract"
+    },
+    {
+      "symbol": "BTC100K2026",
+      "name": "Will BTC hit $100K by Dec 2026?",
+      "exchange": "PREDICTION",
+      "assetClass": "Event Contract"
+    },
+    {
+      "symbol": "INDWC2027",
+      "name": "Will India win Cricket World Cup 2027?",
+      "exchange": "PREDICTION",
+      "assetClass": "Event Contract"
+    }
+  ]
+}

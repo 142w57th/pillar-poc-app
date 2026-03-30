@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "source": "mock",
+    "generatedAt": "2026-03-27T00:00:00.000Z"
+  },
+  "quotes": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "assetClass": "Equity",
+      "price": 252.62,
+      "dayChangePercent": 0.39,
+      "position": { "invested": 2000, "currentValue": 2120 }
+    },
+    "NVDA": {
+      "symbol": "NVDA",
+      "assetClass": "Equity",
+      "price": 178.68,
+      "dayChangePercent": 1.99,
+      "position": { "invested": 1200, "currentValue": 1498 }
+    },
+    "META": {
+      "symbol": "META",
+      "assetClass": "Equity",
+      "price": 594.89,
+      "dayChangePercent": 0.33
+    },
+    "ASML": {
+      "symbol": "ASML",
+      "assetClass": "Equity",
+      "price": 1393.89,
+      "dayChangePercent": -0.4
+    },
+    "SPOT": {
+      "symbol": "SPOT",
+      "assetClass": "Equity",
+      "price": 473.21,
+      "dayChangePercent": -2.4,
+      "position": { "invested": 850, "currentValue": 994 }
+    },
+    "TSLA": {
+      "symbol": "TSLA",
+      "assetClass": "Equity",
+      "price": 385.95,
+      "dayChangePercent": 0.76
+    },
+    "NFLX": {
+      "symbol": "NFLX",
+      "assetClass": "Equity",
+      "price": 92.28,
+      "dayChangePercent": 1.5
+    },
+    "MSFT": {
+      "symbol": "MSFT",
+      "assetClass": "Equity",
+      "price": 442.57,
+      "dayChangePercent": 0.62
+    },
+    "AMZN": {
+      "symbol": "AMZN",
+      "assetClass": "Equity",
+      "price": 198.34,
+      "dayChangePercent": 1.12
+    },
+    "BTC/USD": {
+      "symbol": "BTC/USD",
+      "assetClass": "Crypto",
+      "price": 67842.5,
+      "dayChangePercent": 2.14
+    },
+    "ETH/USD": {
+      "symbol": "ETH/USD",
+      "assetClass": "Crypto",
+      "price": 3521.8,
+      "dayChangePercent": -1.07
+    },
+    "SOL/USD": {
+      "symbol": "SOL/USD",
+      "assetClass": "Crypto",
+      "price": 184.22,
+      "dayChangePercent": 4.51
+    },
+    "BJPWIN2029": {
+      "symbol": "BJPWIN2029",
+      "assetClass": "Event Contract",
+      "price": 0,
+      "dayChangePercent": 0,
+      "eventPricing": { "yesPrice": 0.62, "noPrice": 0.38 }
+    },
+    "BTC100K2026": {
+      "symbol": "BTC100K2026",
+      "assetClass": "Event Contract",
+      "price": 0,
+      "dayChangePercent": 0,
+      "eventPricing": { "yesPrice": 0.74, "noPrice": 0.26 }
+    },
+    "INDWC2027": {
+      "symbol": "INDWC2027",
+      "assetClass": "Event Contract",
+      "price": 0,
+      "dayChangePercent": 0,
+      "eventPricing": { "yesPrice": 0.45, "noPrice": 0.55 }
+    }
+  }
+}

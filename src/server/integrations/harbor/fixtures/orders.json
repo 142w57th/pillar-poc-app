@@ -1,0 +1,22 @@
+{
+  "orders": [
+    {
+      "accountId": "9c1e7a2b-4f8b-4f2c-9273-6a5e46c348f7",
+      "provider": "mock",
+      "orderId": "mock-73ca81d2-4b49-4982-a3ba-075d95920232",
+      "status": "pending",
+      "submittedAt": "2026-03-30T16:03:00.928Z",
+      "instrumentSymbol": "META",
+      "assetClass": "Equity",
+      "side": "BUY",
+      "amountUsd": 10,
+      "pricePerUnit": 594.89,
+      "estimatedUnits": 0.0168,
+      "providerReference": "mock-order-engine"
+    }
+  ],
+  "meta": {
+    "source": "mock-fixture",
+    "generatedAt": "2026-03-30T16:03:00.928Z"
+  }
+}

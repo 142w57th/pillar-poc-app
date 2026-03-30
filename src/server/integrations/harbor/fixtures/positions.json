@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "source": "mock",
+    "generatedAt": "2026-03-27T00:00:00.000Z"
+  },
+  "positions": [
+    {
+      "symbol": "NVDA",
+      "assetClass": "Equity",
+      "lastPrice": 178.68,
+      "dayChangePercent": 1.99,
+      "preMarketPrice": 176.32,
+      "preMarketChangePercent": -1.32,
+      "marketValue": 20850.27,
+      "pnlPercent": 19.44
+    },
+    {
+      "symbol": "BTC/USD",
+      "assetClass": "Crypto",
+      "lastPrice": 67842.5,
+      "dayChangePercent": 2.14,
+      "preMarketPrice": 67210.11,
+      "preMarketChangePercent": -0.93,
+      "marketValue": 27476.21,
+      "pnlPercent": 34.71
+    },
+    {
+      "symbol": "BJPWIN2029",
+      "assetClass": "Event Contract",
+      "lastPrice": 0.62,
+      "dayChangePercent": 5.08,
+      "preMarketPrice": 0.61,
+      "preMarketChangePercent": -1.64,
+      "marketValue": 310.0,
+      "pnlPercent": 8.77,
+      "eventSide": "YES",
+      "eventYesPrice": 0.62,
+      "eventNoPrice": 0.38
+    },
+    {
+      "symbol": "SPOT",
+      "assetClass": "Equity",
+      "lastPrice": 473.21,
+      "dayChangePercent": -2.40,
+      "preMarketPrice": 469.33,
+      "preMarketChangePercent": -0.82,
+      "marketValue": 7098.15,
+      "pnlPercent": 12.96
+    },
+    {
+      "symbol": "AAPL",
+      "assetClass": "Equity",
+      "lastPrice": 252.62,
+      "dayChangePercent": 0.39,
+      "preMarketPrice": 251.90,
+      "preMarketChangePercent": -0.29,
+      "marketValue": 12125.76,
+      "pnlPercent": 5.34
+    },
+    {
+      "symbol": "ETH/USD",
+      "assetClass": "Crypto",
+      "lastPrice": 3521.8,
+      "dayChangePercent": -1.07,
+      "preMarketPrice": 3557.33,
+      "preMarketChangePercent": 1.01,
+      "marketValue": 8441.02,
+      "pnlPercent": -2.84
+    },
+    {
+      "symbol": "BTC100K2026",
+      "assetClass": "Event Contract",
+      "lastPrice": 0.26,
+      "dayChangePercent": -7.14,
+      "preMarketPrice": 0.28,
+      "preMarketChangePercent": 7.69,
+      "marketValue": 182.0,
+      "pnlPercent": -9.45,
+      "eventSide": "NO",
+      "eventYesPrice": 0.74,
+      "eventNoPrice": 0.26
+    }
+  ]
+}
