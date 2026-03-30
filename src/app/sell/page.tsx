@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api-client";
 import { ApiResponse, InstrumentsCatalogPayload, QuotePayload, SubmitOrderPayload } from "@/types/api";
@@ -85,7 +85,7 @@ function toCryptoBaseAsset(symbol: string) {
   return pairLabel;
 }
 
-export default function SellPage() {
+function SellPageContent() {
   const searchParams = useSearchParams();
   const symbolFromUrl = searchParams.get("symbol");
 
@@ -423,5 +423,23 @@ export default function SellPage() {
         {submitErrorMessage ? <p className="text-negative mt-2 text-xs">{submitErrorMessage}</p> : null}
       </form>
     </div>
+  );
+}
+
+function SellPageFallback() {
+  return (
+    <div className="mx-auto w-full max-w-md pb-10">
+      <div className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
+        <p className="text-app-secondary text-sm">Loading sell experience...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function SellPage() {
+  return (
+    <Suspense fallback={<SellPageFallback />}>
+      <SellPageContent />
+    </Suspense>
   );
 }

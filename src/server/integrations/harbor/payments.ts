@@ -1,6 +1,8 @@
 import { harborFetch } from "@/server/integrations/harbor/client";
 import { getHarborConfig } from "@/server/integrations/harbor/config";
 
+export type HarborProviderId = "mock" | "harbor";
+
 export type PaymentInstructionAccountType = "checking" | "savings" | "brokerage" | "other";
 
 export type HarborPaymentInstructionAccount = {
