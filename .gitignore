@@ -24,6 +24,7 @@ pnpm-debug.log*
 
 # local storage
 src/server/.store/
+src/server/.env
 
 # typescript
 *.tsbuildinfo
