@@ -29,7 +29,20 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --include=optional
+
+      - name: Install Linux native CSS bindings for runner
+        run: |
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "x86_64" ]; then NATIVE_ARCH="x64";
+          elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then NATIVE_ARCH="arm64";
+          else echo "Unsupported architecture: $ARCH"; exit 1; fi
+
+          if ldd --version 2>/dev/null | grep -qi "musl"; then LIBC="musl"; else LIBC="gnu"; fi
+
+          npm install --no-save \
+            "lightningcss-linux-${NATIVE_ARCH}-${LIBC}@1.32.0" \
+            "@tailwindcss/oxide-linux-${NATIVE_ARCH}-${LIBC}@4.2.2"
 
       - name: Build application
         run: npm run build
