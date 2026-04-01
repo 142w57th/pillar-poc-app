@@ -11,6 +11,7 @@ export type HarborConfig = {
   positionsPath: string;
   quotesPath: string;
   paymentInstructionsPath: string;
+  paymentAccountsPath: string;
   depositsPath: string;
   authScope: string | null;
   requestTimeoutMs: number;
@@ -47,6 +48,7 @@ export function getHarborConfig(): HarborConfig {
     positionsPath: process.env.HARBOR_POSITIONS_PATH || "/v2/financials/parties",
     quotesPath: process.env.HARBOR_QUOTES_PATH || "/quotes",
     paymentInstructionsPath: process.env.HARBOR_PAYMENT_INSTRUCTIONS_PATH || "/braavos/v1/payments/payment-instructions",
+    paymentAccountsPath: process.env.HARBOR_PAYMENT_ACCOUNTS_PATH || "/v1/payments/payment-accounts",
     depositsPath: process.env.HARBOR_DEPOSITS_PATH || "/v1/payments/payment-instructions",
     authScope: process.env.HARBOR_AUTH_SCOPE || null,
     requestTimeoutMs: parsedTimeout,

@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { emitApiLog } from "@/server/api-log/event-bus";
 import type { HttpMethod } from "@/server/api-log/types";
 import type { TradeOrderSubmitRequest } from "@/server/integrations/harbor/orders";
-import type { HarborSubmitDepositRequest } from "@/server/integrations/harbor/payments";
+import { buildHarborCreatePaymentAccountRequest } from "@/server/integrations/harbor/payments";
+import type {
+  HarborCreatePaymentAccountInput,
+  HarborGetPaymentAccountsInput,
+  HarborSubmitDepositRequest,
+} from "@/server/integrations/harbor/payments";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
 
 type EndpointMapping = {
@@ -43,6 +48,24 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
     path: "/braavos/v1/payments/payment-instructions",
     description: "Fetch payment instructions",
   },
+  fetchPaymentAccounts: {
+    method: "GET",
+    path: (input: unknown) => {
+      if (!input || typeof input !== "object") return "/v1/payments/payment-accounts";
+      const params = new URLSearchParams();
+      const cast = input as Record<string, unknown>;
+      if (typeof cast.clientId === "string" && cast.clientId) params.set("clientId", cast.clientId);
+      if (typeof cast.type === "string" && cast.type) params.set("type", cast.type);
+      const query = params.toString();
+      return query ? `/v1/payments/payment-accounts?${query}` : "/v1/payments/payment-accounts";
+    },
+    description: "Fetch payment accounts",
+  },
+  createPaymentAccount: {
+    method: "POST",
+    path: "/v1/payments/payment-accounts",
+    description: "Create payment account",
+  },
   submitDeposit: {
     method: "POST",
     path: "/v1/payments/payment-instructions",
@@ -67,6 +90,9 @@ function randomDelay(): Promise<number> {
 
 function resolveRequestBody(methodName: string, args: unknown[]): unknown {
   if (methodName === "submitOrder") return args[0];
+  if (methodName === "createPaymentAccount") {
+    return buildHarborCreatePaymentAccountRequest(args[0] as HarborCreatePaymentAccountInput);
+  }
   if (methodName === "submitDeposit") return args[0];
   return undefined;
 }
@@ -137,7 +163,14 @@ export function createLoggedHarborProvider(inner: HarborProvider): HarborProvide
       await emitMockAuthEvent();
       return loggedCall("fetchPaymentInstructions", [], () => inner.fetchPaymentInstructions());
     },
-
+    async fetchPaymentAccounts(input: HarborGetPaymentAccountsInput) {
+      await emitMockAuthEvent();
+      return loggedCall("fetchPaymentAccounts", [input], () => inner.fetchPaymentAccounts(input));
+    },
+    async createPaymentAccount(input: HarborCreatePaymentAccountInput) {
+      await emitMockAuthEvent();
+      return loggedCall("createPaymentAccount", [input], () => inner.createPaymentAccount(input));
+    },
     async submitDeposit(input: HarborSubmitDepositRequest) {
       await emitMockAuthEvent();
       return loggedCall("submitDeposit", [input], () => inner.submitDeposit(input));

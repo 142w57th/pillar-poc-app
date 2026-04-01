@@ -6,6 +6,10 @@ import type {
   TradeOrderSubmitResult,
 } from "@/server/integrations/harbor/orders";
 import type {
+  HarborCreatePaymentAccountInput,
+  HarborCreatePaymentAccountResponse,
+  HarborGetPaymentAccountsInput,
+  HarborPaymentAccountsResponse,
   HarborPaymentInstructionsResponse,
   HarborSubmitDepositRequest,
   HarborSubmitDepositResult,
@@ -25,6 +29,8 @@ export type HarborProvider = {
   submitOrder(input: TradeOrderSubmitRequest): Promise<TradeOrderSubmitResult>;
   fetchOrders(partyId: string): Promise<HarborOrdersResponse>;
   fetchPaymentInstructions(): Promise<HarborPaymentInstructionsResponse>;
+  fetchPaymentAccounts(input: HarborGetPaymentAccountsInput): Promise<HarborPaymentAccountsResponse>;
+  createPaymentAccount(input: HarborCreatePaymentAccountInput): Promise<HarborCreatePaymentAccountResponse>;
   submitDeposit(input: HarborSubmitDepositRequest): Promise<HarborSubmitDepositResult>;
   fetchPositions(partyId: string): Promise<PositionsResponse>;
   fetchQuote(symbol: string): Promise<QuoteResponse>;

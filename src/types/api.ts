@@ -261,6 +261,78 @@ export type PaymentInstructionsPayload = {
     generatedAt: string;
   };
 };
+export type PaymentAccountStatus =
+  | "LINKING"
+  | "LINKED"
+  | "PENDING_VERIFICATION"
+  | "BLOCKED"
+  | "UNLINKED";
+
+export type PaymentBankIdentifierType = "ABA_ROUTING" | "IBAN" | "IFSC";
+
+export type PaymentAccountDetailsPayload = {
+  type: "BANK_ACCOUNT";
+  accountType?: string;
+  bankName?: string;
+  bankAddress?: string;
+  bankIdentifierType?: PaymentBankIdentifierType;
+  bankIdentifier?: string;
+};
+
+export type PaymentAccountPayload = {
+  paymentAccountId: string;
+  status: PaymentAccountStatus;
+  currency: string;
+  country: string;
+  maskedIdentifier?: string;
+  nickname?: string;
+  createdAt: string;
+  updatedAt?: string;
+  externalId?: string;
+  metadata?: Record<string, unknown>;
+  details: PaymentAccountDetailsPayload;
+};
+
+export type PaymentAccountsPayload = {
+  data: PaymentAccountPayload[];
+  meta: {
+    provider: "mock" | "harbor";
+    source: string;
+    generatedAt: string;
+  };
+};
+
+export type CreatePaymentAccountRequestPayload = {
+  data: {
+    clientId: string;
+    currency: string;
+    country: string;
+    maskedIdentifier?: string;
+    nickname?: string;
+    externalId?: string;
+    metadata?: Record<string, unknown>;
+    details: {
+      type: "BANK_ACCOUNT";
+      accountHolderName: string;
+      accountNumber: string;
+      accountType: "CHECKING" | "SAVINGS";
+      bankName: string;
+      bankAddress: string;
+      bankIdentifierType: "ABA_ROUTING" | "IFSC" | "IBAN";
+      bankIdentifier: string;
+    };
+  };
+};
+
+export type CreatePaymentAccountPayload = {
+  data: PaymentAccountPayload;
+  meta: {
+    provider: "mock" | "harbor";
+    source: string;
+    generatedAt: string;
+    requestId?: string;
+  };
+};
 
 export type DestinationAccountPayload = {
   accountType: string;

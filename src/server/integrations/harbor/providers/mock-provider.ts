@@ -19,6 +19,10 @@ import type {
   TradeOrderSubmitRequest,
 } from "@/server/integrations/harbor/orders";
 import type {
+  HarborCreatePaymentAccountInput,
+  HarborCreatePaymentAccountResponse,
+  HarborGetPaymentAccountsInput,
+  HarborPaymentAccountsResponse,
   HarborPaymentInstructionsResponse,
   HarborSubmitDepositRequest,
 } from "@/server/integrations/harbor/payments";
@@ -82,6 +86,32 @@ const PAYMENT_INSTRUCTIONS_FIXTURE: HarborPaymentInstructionsResponse = {
     generatedAt: new Date().toISOString(),
   },
 };
+const PAYMENT_ACCOUNTS_FIXTURE: HarborPaymentAccountsResponse = {
+  data: [
+    {
+      paymentAccountId: "pa-chase-checking",
+      status: "LINKED",
+      currency: "USD",
+      country: "USA",
+      maskedIdentifier: "****9876",
+      nickname: "Primary bank",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      externalId: "mock-pa-001",
+      metadata: {
+        source: "mock-fixture",
+      },
+      details: {
+        type: "BANK_ACCOUNT",
+        accountType: "checking",
+        bankName: "Chase Bank",
+        bankAddress: "270 Park Ave, New York, NY",
+        bankIdentifierType: "ABA_ROUTING",
+        bankIdentifier: "021000021",
+      },
+    },
+  ],
+};
 
 function getBalanceFromFixture(accountId: string): HarborBalanceResponse {
   const balance = BALANCES_FIXTURE.accounts[accountId];
@@ -144,6 +174,36 @@ function round(value: number, digits = 4) {
   return Math.round(value * base) / base;
 }
 
+function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): HarborCreatePaymentAccountResponse {
+  return {
+    data: {
+      paymentAccountId: `pa-mock-${crypto.randomUUID()}`,
+      status: "LINKED" as const,
+      currency: "USD" as const,
+      country: "USA" as const,
+      maskedIdentifier: "****1234" as const,
+      nickname: input.bankName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      externalId: `mock-${Date.now()}` as const,
+      metadata: {
+        source: "mock-provider" as const,
+      },
+      details: {
+        type: "BANK_ACCOUNT" as const,
+        accountType: input.accountType,
+        bankName: input.bankName ,
+        bankAddress: input.bankAddress ,
+        bankIdentifierType: "ABA_ROUTING",
+        bankIdentifier: input.bankIdentifier ,
+      },
+    },
+    meta: {
+      requestId: `mock-${crypto.randomUUID()}`,
+    },
+  };
+}
+
 export function createMockHarborProvider(): HarborProvider {
   return {
     fetchBalanceByAccountId(accountId: string) {
@@ -194,6 +254,15 @@ export function createMockHarborProvider(): HarborProvider {
           generatedAt: new Date().toISOString(),
         },
       });
+    },
+    fetchPaymentAccounts(input: HarborGetPaymentAccountsInput) {
+      void input;
+      return Promise.resolve({
+        ...PAYMENT_ACCOUNTS_FIXTURE,
+      });
+    },
+    createPaymentAccount(input: HarborCreatePaymentAccountInput) {
+      return Promise.resolve(createMockPaymentAccount(input));
     },
 
     submitDeposit(input: HarborSubmitDepositRequest) {
