@@ -3,6 +3,10 @@ import instrumentsFixture from "@/server/integrations/harbor/fixtures/instrument
 import ordersFixture from "@/server/integrations/harbor/fixtures/orders.json";
 import positionsFixture from "@/server/integrations/harbor/fixtures/positions.json";
 import quotesFixture from "@/server/integrations/harbor/fixtures/quotes.json";
+import type { HarborAccountTemplatesResponse } from "@/server/integrations/harbor/account-templates";
+import type { HarborCreateAccountInput } from "@/server/integrations/harbor/accounts";
+import { createMockHarborAccount } from "@/server/integrations/harbor/mock/accounts";
+import { createMockHarborParty } from "@/server/integrations/harbor/mock/parties";
 import type {
   HarborBalanceData,
   HarborBalanceResponse,
@@ -28,6 +32,7 @@ import type {
 } from "@/server/integrations/harbor/payments";
 import type { PositionSnapshot, PositionsResponse } from "@/server/integrations/harbor/positions";
 import type { QuoteSnapshot, QuoteResponse } from "@/server/integrations/harbor/quotes";
+import type { HarborCreatePartyInput } from "@/server/integrations/harbor/parties";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
 
 type HarborBalanceFixture = {
@@ -111,6 +116,20 @@ const PAYMENT_ACCOUNTS_FIXTURE: HarborPaymentAccountsResponse = {
       },
     },
   ],
+};
+
+const ACCOUNT_TEMPLATES_FIXTURE: HarborAccountTemplatesResponse = {
+  data: {
+    accountTemplates: [
+      { accountTemplateCode: "EVENT_CONTRACTS_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
+      { accountTemplateCode: "DIGITAL_ASSETS_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
+      { accountTemplateCode: "RETAIL_SELF_DIRECTED_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
+    ],
+  },
+  meta: {
+    source: "mock-fixture",
+    generatedAt: new Date().toISOString(),
+  },
 };
 
 function getBalanceFromFixture(accountId: string): HarborBalanceResponse {
@@ -206,6 +225,24 @@ function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): Harbo
 
 export function createMockHarborProvider(): HarborProvider {
   return {
+    createParty(input: HarborCreatePartyInput) {
+      return createMockHarborParty(input);
+    },
+
+    createAccount(input: HarborCreateAccountInput) {
+      return createMockHarborAccount(input);
+    },
+
+    fetchAccountTemplates() {
+      return Promise.resolve({
+        ...ACCOUNT_TEMPLATES_FIXTURE,
+        meta: {
+          ...ACCOUNT_TEMPLATES_FIXTURE.meta,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    },
+
     fetchBalanceByAccountId(accountId: string) {
       return Promise.resolve(getBalanceFromFixture(accountId));
     },

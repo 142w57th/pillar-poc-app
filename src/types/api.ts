@@ -150,6 +150,18 @@ export type OnboardingStatusPayload = {
   }>;
 };
 
+export type OnboardingAccountTemplatesPayload = {
+  accountTemplates: Array<{
+    accountTemplateCode: string;
+    offeringCode?: string;
+  }>;
+  meta: {
+    provider: "harbor";
+    source: string;
+    generatedAt: string;
+  };
+};
+
 export type CreateAccountRequestPayload = {
   userId: string;
   accountType: string;
@@ -162,8 +174,15 @@ export type CreateAccountRequestPayload = {
     dateOfBirth: string;
     country: string;
     email: string;
-    phone: string;
-    legalAddress: string;
+    phone: {
+      countryCode: string;
+      phoneNumber: string;
+    };
+    legalAddress: {
+      line1: string;
+      city: string;
+      countryCode: string;
+    };
   };
   suitability: {
     employmentType: string;
@@ -171,10 +190,21 @@ export type CreateAccountRequestPayload = {
     businessType?: string;
     employer?: string;
     businessPhone?: string;
+    businessPhoneCountryCode?: string;
+    businessPhoneNumber?: string;
     businessAddress?: string;
+    businessRegion?: string;
+    businessPostalCode?: string;
+    annualIncome?: string;
     liquidNetWorth?: string;
     totalNetWorth?: string;
+    sourceOfFunds?: string;
+    sourceOfFundsItems?: string[];
+    timeHorizonMinYears?: string;
+    timeHorizonMaxYears?: string;
+    dividendReinvestmentInstruction?: string;
     investmentObjective: string;
+    investmentObjectives?: string[];
     riskTolerance: string;
   };
 };
