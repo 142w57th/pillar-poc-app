@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import type {
   ApiResponse,
   DestinationAccountsPayload,
-  PaymentInstructionsPayload,
+  PaymentAccountsPayload,
   SubmitDepositPayload,
   SubmitDepositRequestPayload,
 } from "@/types/api";
@@ -43,14 +43,14 @@ export default function DepositPage() {
   const amountUsd = useMemo(() => parseAmount(amountInput), [amountInput]);
 
   const {
-    data: instructionsData,
-    isLoading: isInstructionsLoading,
-    isError: isInstructionsError,
+    data: paymentAccountsData,
+    isLoading: isPaymentAccountsLoading,
+    isError: isPaymentAccountsError,
   } = useQuery({
-    queryKey: ["payment-instructions"],
+    queryKey: ["payment-accounts"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<PaymentInstructionsPayload>>(
-        "/api/v1/payments/payment-instructions",
+      const response = await apiFetch<ApiResponse<PaymentAccountsPayload>>(
+        `/api/v1/payments/payment-accounts?clientId=${encodeURIComponent(DASHBOARD_USER_ID)}&type=BANK_ACCOUNT`,
       );
       if (!response.success) {
         throw new Error(response.error.message);
@@ -104,10 +104,10 @@ export default function DepositPage() {
     },
   });
 
-  const paymentInstructionAccounts = instructionsData?.accounts ?? [];
-  const defaultSourceInstructionId = paymentInstructionAccounts[0]?.instructionId ?? "";
+  const paymentAccounts = paymentAccountsData?.data ?? [];
+  const defaultSourceInstructionId = paymentAccounts[0]?.paymentAccountId ?? "";
   const destinationAccounts = destinationData?.accounts ?? [];
-  const hasInstructionAccounts = paymentInstructionAccounts.length > 0;
+  const hasInstructionAccounts = paymentAccounts.length > 0;
   const hasDestinationAccounts = destinationAccounts.length > 0;
 
   const isAmountInvalid = amountUsd <= 0;
@@ -196,32 +196,37 @@ export default function DepositPage() {
 
       <section className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
         <h2 className="text-app-primary text-xl font-semibold">Deposit</h2>
-        <p className="text-app-secondary mt-1 text-sm">Move money into your account using payment instructions.</p>
+        <p className="text-app-secondary mt-1 text-sm">Move money into your account using payment accounts.</p>
+        <Link
+          href="/deposit/add-bank-account"
+          className="border-app bg-surface-2 text-app-primary mt-3 inline-flex h-10 items-center justify-center rounded-lg border px-4 text-sm font-semibold transition hover:opacity-90"
+        >
+          Link Bank Account
+        </Link>
 
         <div className="mt-4">
           <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Transfer from</p>
-          {isInstructionsLoading ? (
-            <p className="text-app-secondary mt-2 text-sm">Loading payment instruction accounts...</p>
+          {isPaymentAccountsLoading ? (
+            <p className="text-app-secondary mt-2 text-sm">Loading payment accounts...</p>
           ) : null}
-          {isInstructionsError ? (
-            <p className="text-negative mt-2 text-sm">Unable to load payment instruction accounts.</p>
+          {isPaymentAccountsError ? (
+            <p className="text-negative mt-2 text-sm">Unable to load payment accounts.</p>
           ) : null}
 
-          {!isInstructionsLoading && !isInstructionsError && !hasInstructionAccounts ? (
+          {!isPaymentAccountsLoading && !isPaymentAccountsError && !hasInstructionAccounts ? (
             <p className="text-app-secondary mt-2 text-sm">
-              No payment instruction accounts are available right now.
+              No payment accounts are available right now.
             </p>
           ) : null}
 
           {hasInstructionAccounts ? (
             <div className="mt-2 space-y-2">
-              {paymentInstructionAccounts.map((account) => (
-                <article key={account.instructionId} className="border-app bg-surface-2 rounded-xl border p-3">
-                  <p className="text-app-primary text-sm font-semibold">{account.bankName}</p>
-                  <p className="text-app-secondary mt-1 text-xs">{account.accountHolderName}</p>
+              {paymentAccounts.map((account) => (
+                <article key={account.paymentAccountId} className="border-app bg-surface-2 rounded-xl border p-3">
+                  <p className="text-app-primary text-sm font-semibold">{account.details.bankName ?? "Bank account"}</p>
+                  <p className="text-app-secondary mt-1 text-xs">Status: {account.status.replaceAll("_", " ")}</p>
                   <p className="text-app-muted mt-1 text-xs">
-                    {account.accountType.toUpperCase()} • Routing ••••{account.routingNumberLast4} • Account ••••
-                    {account.accountNumberLast4}
+                    {(account.details.accountType ?? "N/A").toUpperCase()} • {account.maskedIdentifier ?? "••••"}
                   </p>
                 </article>
               ))}

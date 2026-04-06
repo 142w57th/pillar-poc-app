@@ -1,11 +1,18 @@
 import type { HarborBalanceResponse, HarborPartyBalanceResponse } from "@/server/integrations/harbor/balances";
+import type { HarborAccountTemplatesResponse } from "@/server/integrations/harbor/account-templates";
+import type { HarborCreateAccountInput, HarborCreateAccountResult } from "@/server/integrations/harbor/accounts";
 import type { InstrumentsCatalogResponse } from "@/server/integrations/harbor/instruments";
+import type { HarborCreatePartyInput, HarborCreatePartyResult } from "@/server/integrations/harbor/parties";
 import type {
   HarborOrdersResponse,
   TradeOrderSubmitRequest,
   TradeOrderSubmitResult,
 } from "@/server/integrations/harbor/orders";
 import type {
+  HarborCreatePaymentAccountInput,
+  HarborCreatePaymentAccountResponse,
+  HarborGetPaymentAccountsInput,
+  HarborPaymentAccountsResponse,
   HarborPaymentInstructionsResponse,
   HarborSubmitDepositRequest,
   HarborSubmitDepositResult,
@@ -19,12 +26,17 @@ import { createRealHarborProvider } from "./providers/real-provider";
 export type HarborProviderMode = "mock" | "real";
 
 export type HarborProvider = {
+  createParty(input: HarborCreatePartyInput): Promise<HarborCreatePartyResult>;
+  createAccount(input: HarborCreateAccountInput): Promise<HarborCreateAccountResult>;
+  fetchAccountTemplates(): Promise<HarborAccountTemplatesResponse>;
   fetchBalanceByAccountId(accountId: string): Promise<HarborBalanceResponse>;
   fetchBalanceByPartyId(partyId: string): Promise<HarborPartyBalanceResponse>;
   fetchInstruments(): Promise<InstrumentsCatalogResponse>;
   submitOrder(input: TradeOrderSubmitRequest): Promise<TradeOrderSubmitResult>;
   fetchOrders(partyId: string): Promise<HarborOrdersResponse>;
   fetchPaymentInstructions(): Promise<HarborPaymentInstructionsResponse>;
+  fetchPaymentAccounts(input: HarborGetPaymentAccountsInput): Promise<HarborPaymentAccountsResponse>;
+  createPaymentAccount(input: HarborCreatePaymentAccountInput): Promise<HarborCreatePaymentAccountResponse>;
   submitDeposit(input: HarborSubmitDepositRequest): Promise<HarborSubmitDepositResult>;
   fetchPositions(partyId: string): Promise<PositionsResponse>;
   fetchQuote(symbol: string): Promise<QuoteResponse>;

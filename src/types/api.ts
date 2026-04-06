@@ -150,6 +150,18 @@ export type OnboardingStatusPayload = {
   }>;
 };
 
+export type OnboardingAccountTemplatesPayload = {
+  accountTemplates: Array<{
+    accountTemplateCode: string;
+    offeringCode?: string;
+  }>;
+  meta: {
+    provider: "harbor";
+    source: string;
+    generatedAt: string;
+  };
+};
+
 export type CreateAccountRequestPayload = {
   userId: string;
   accountType: string;
@@ -162,8 +174,15 @@ export type CreateAccountRequestPayload = {
     dateOfBirth: string;
     country: string;
     email: string;
-    phone: string;
-    legalAddress: string;
+    phone: {
+      countryCode: string;
+      phoneNumber: string;
+    };
+    legalAddress: {
+      line1: string;
+      city: string;
+      countryCode: string;
+    };
   };
   suitability: {
     employmentType: string;
@@ -171,10 +190,21 @@ export type CreateAccountRequestPayload = {
     businessType?: string;
     employer?: string;
     businessPhone?: string;
+    businessPhoneCountryCode?: string;
+    businessPhoneNumber?: string;
     businessAddress?: string;
+    businessRegion?: string;
+    businessPostalCode?: string;
+    annualIncome?: string;
     liquidNetWorth?: string;
     totalNetWorth?: string;
+    sourceOfFunds?: string;
+    sourceOfFundsItems?: string[];
+    timeHorizonMinYears?: string;
+    timeHorizonMaxYears?: string;
+    dividendReinvestmentInstruction?: string;
     investmentObjective: string;
+    investmentObjectives?: string[];
     riskTolerance: string;
   };
 };
@@ -259,6 +289,78 @@ export type PaymentInstructionsPayload = {
     provider: "mock" | "harbor";
     source: string;
     generatedAt: string;
+  };
+};
+export type PaymentAccountStatus =
+  | "LINKING"
+  | "LINKED"
+  | "PENDING_VERIFICATION"
+  | "BLOCKED"
+  | "UNLINKED";
+
+export type PaymentBankIdentifierType = "ABA_ROUTING" | "IBAN" | "IFSC";
+
+export type PaymentAccountDetailsPayload = {
+  type: "BANK_ACCOUNT";
+  accountType?: string;
+  bankName?: string;
+  bankAddress?: string;
+  bankIdentifierType?: PaymentBankIdentifierType;
+  bankIdentifier?: string;
+};
+
+export type PaymentAccountPayload = {
+  paymentAccountId: string;
+  status: PaymentAccountStatus;
+  currency: string;
+  country: string;
+  maskedIdentifier?: string;
+  nickname?: string;
+  createdAt: string;
+  updatedAt?: string;
+  externalId?: string;
+  metadata?: Record<string, unknown>;
+  details: PaymentAccountDetailsPayload;
+};
+
+export type PaymentAccountsPayload = {
+  data: PaymentAccountPayload[];
+  meta: {
+    provider: "mock" | "harbor";
+    source: string;
+    generatedAt: string;
+  };
+};
+
+export type CreatePaymentAccountRequestPayload = {
+  data: {
+    clientId: string;
+    currency: string;
+    country: string;
+    maskedIdentifier?: string;
+    nickname?: string;
+    externalId?: string;
+    metadata?: Record<string, unknown>;
+    details: {
+      type: "BANK_ACCOUNT";
+      accountHolderName: string;
+      accountNumber: string;
+      accountType: "CHECKING" | "SAVINGS";
+      bankName: string;
+      bankAddress: string;
+      bankIdentifierType: "ABA_ROUTING" | "IFSC" | "IBAN";
+      bankIdentifier: string;
+    };
+  };
+};
+
+export type CreatePaymentAccountPayload = {
+  data: PaymentAccountPayload;
+  meta: {
+    provider: "mock" | "harbor";
+    source: string;
+    generatedAt: string;
+    requestId?: string;
   };
 };
 
