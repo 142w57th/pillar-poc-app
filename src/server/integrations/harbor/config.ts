@@ -3,6 +3,9 @@ export type HarborConfig = {
   authUrl: string;
   clientId: string;
   clientSecret: string;
+  partiesPath: string;
+  accountsPath: string;
+  accountTemplatesPath: string;
   balancesPath: string;
   partyBalancesPath: string;
   instrumentsPath: string;
@@ -40,6 +43,9 @@ export function getHarborConfig(): HarborConfig {
     authUrl: requireEnv("HARBOR_AUTH_URL"),
     clientId: requireEnv("HARBOR_CLIENT_ID"),
     clientSecret: requireEnv("HARBOR_CLIENT_SECRET"),
+    partiesPath: process.env.HARBOR_PARTIES_PATH || "/v2/parties",
+    accountsPath: process.env.HARBOR_ACCOUNTS_PATH || "/v2/accounts",
+    accountTemplatesPath: process.env.HARBOR_ACCOUNT_TEMPLATES_PATH || "/v1/account-templates",
     balancesPath: process.env.HARBOR_BALANCES_PATH || "/v2/financials/accounts/{accountId}/balances",
     partyBalancesPath: process.env.HARBOR_PARTY_BALANCES_PATH || "/v2/financials/parties",
     instrumentsPath: process.env.HARBOR_INSTRUMENTS_PATH || "/instruments",

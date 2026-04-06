@@ -1,6 +1,9 @@
 import { fetchHarborBalanceByAccountId, fetchHarborBalanceByPartyId } from "@/server/integrations/harbor/balances";
+import { fetchHarborAccountTemplates } from "@/server/integrations/harbor/account-templates";
+import { createHarborAccount } from "@/server/integrations/harbor/accounts";
 import { fetchHarborInstruments } from "@/server/integrations/harbor/instruments";
 import { fetchHarborOrders, submitHarborOrder } from "@/server/integrations/harbor/orders";
+import { createHarborParty } from "@/server/integrations/harbor/parties";
 import {
   createHarborPaymentAccount,
   fetchHarborPaymentAccounts,
@@ -19,6 +22,18 @@ import type { HarborProvider } from "@/server/integrations/harbor/provider";
 
 export function createRealHarborProvider(): HarborProvider {
   return {
+    createParty(input) {
+      return createHarborParty(input);
+    },
+
+    createAccount(input) {
+      return createHarborAccount(input);
+    },
+
+    fetchAccountTemplates() {
+      return fetchHarborAccountTemplates();
+    },
+
     fetchBalanceByAccountId(accountId: string) {
       return fetchHarborBalanceByAccountId(accountId);
     },

@@ -183,7 +183,7 @@ export async function getClientByUserId(userId: string) {
   return store.clients.find((item) => item.userId === userId) ?? null;
 }
 
-export async function createClientForUserId(userId: string) {
+export async function createClientForUserId(userId: string, clientId?: string) {
   return mutateStore((store) => {
     const existing = store.clients.find((item) => item.userId === userId);
     if (existing) {
@@ -192,7 +192,7 @@ export async function createClientForUserId(userId: string) {
 
     const now = new Date().toISOString();
     const client: ClientRecord = {
-      id: randomUUID(),
+      id: clientId ?? randomUUID(),
       userId,
       createdAt: now,
       updatedAt: now,

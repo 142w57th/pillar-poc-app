@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { emitApiLog } from "@/server/api-log/event-bus";
 import type { HttpMethod } from "@/server/api-log/types";
+import { buildHarborCreateAccountRequest } from "@/server/integrations/harbor/accounts";
 import type { TradeOrderSubmitRequest } from "@/server/integrations/harbor/orders";
+import { buildHarborCreatePartyRequest } from "@/server/integrations/harbor/parties";
 import { buildHarborCreatePaymentAccountRequest } from "@/server/integrations/harbor/payments";
 import type {
   HarborCreatePaymentAccountInput,
   HarborGetPaymentAccountsInput,
   HarborSubmitDepositRequest,
 } from "@/server/integrations/harbor/payments";
+import type { HarborCreateAccountInput } from "@/server/integrations/harbor/accounts";
+import type { HarborCreatePartyInput } from "@/server/integrations/harbor/parties";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
 
 type EndpointMapping = {
@@ -18,10 +22,25 @@ type EndpointMapping = {
 };
 
 const ENDPOINT_MAP: Record<string, EndpointMapping> = {
+  createParty: {
+    method: "POST",
+    path: "/v2/parties",
+    description: "Create party profile",
+  },
+  createAccount: {
+    method: "POST",
+    path: "/v2/accounts",
+    description: "Create brokerage account",
+  },
   fetchBalanceByAccountId: {
     method: "GET",
     path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/balances`,
     description: "Fetch account balance",
+  },
+  fetchAccountTemplates: {
+    method: "GET",
+    path: "/v1/account-templates",
+    description: "Fetch account templates",
   },
   fetchBalanceByPartyId: {
     method: "GET",
@@ -89,6 +108,12 @@ function randomDelay(): Promise<number> {
 }
 
 function resolveRequestBody(methodName: string, args: unknown[]): unknown {
+  if (methodName === "createParty") {
+    return buildHarborCreatePartyRequest(args[0] as HarborCreatePartyInput);
+  }
+  if (methodName === "createAccount") {
+    return buildHarborCreateAccountRequest(args[0] as HarborCreateAccountInput);
+  }
   if (methodName === "submitOrder") return args[0];
   if (methodName === "createPaymentAccount") {
     return buildHarborCreatePaymentAccountRequest(args[0] as HarborCreatePaymentAccountInput);
@@ -130,6 +155,21 @@ async function emitMockAuthEvent() {
 
 export function createLoggedHarborProvider(inner: HarborProvider): HarborProvider {
   return {
+    async createParty(input: HarborCreatePartyInput) {
+      await emitMockAuthEvent();
+      return loggedCall("createParty", [input], () => inner.createParty(input));
+    },
+
+    async createAccount(input: HarborCreateAccountInput) {
+      await emitMockAuthEvent();
+      return loggedCall("createAccount", [input], () => inner.createAccount(input));
+    },
+
+    async fetchAccountTemplates() {
+      await emitMockAuthEvent();
+      return loggedCall("fetchAccountTemplates", [], () => inner.fetchAccountTemplates());
+    },
+
     async fetchBalanceByAccountId(accountId: string) {
       await emitMockAuthEvent();
       return loggedCall("fetchBalanceByAccountId", [accountId], () =>

@@ -57,14 +57,13 @@ async function requestNewToken() {
   const config = getHarborConfig();
   const body = new URLSearchParams({
     grant_type: "client_credentials",
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
   });
-
   if (config.authScope) {
     body.set("scope", config.authScope);
   }
-
+  const basicAuth = Buffer.from(
+    `${config.clientId}:${config.clientSecret}`
+  ).toString("base64");
   const start = performance.now();
   const authPath = new URL(config.authUrl).pathname;
 
@@ -73,11 +72,11 @@ async function requestNewToken() {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
+      Authorization: `Basic ${basicAuth}`,
     },
     body,
     cache: "no-store",
   });
-
   if (!response.ok) {
     const durationMs = Math.round(performance.now() - start);
     emitApiLog({
