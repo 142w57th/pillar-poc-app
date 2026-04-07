@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  getClientByUserId,
+  getCurrentClient,
   createClientForUserId,
   listBrokerAccountsByUserId,
   upsertBrokerAccountForUserId,
-} from "@/server/storage/kv-store";
+} from "@/server/storage/keyv-store";
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import type {
   OnboardingStatusResult,
@@ -15,8 +15,6 @@ import type {
 } from "@/server/features/onboarding/types";
 
 type OnboardingErrorCode =
-  | "MISSING_USER_ID"
-  | "INVALID_USER_ID"
   | "MISSING_ACCOUNT_TYPE"
   | "INVALID_ACCOUNT_TYPE"
   | "ACCOUNT_ALREADY_EXISTS"
@@ -50,8 +48,6 @@ export class OnboardingServiceError extends Error {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function resolveAccountTemplateCode(accountType: string): string {
   const normalized = accountType.trim().toUpperCase();
   if (
@@ -74,21 +70,9 @@ function resolveAccountTemplateCode(accountType: string): string {
   );
 }
 
-function validateUserId(userId: string | null | undefined): string {
-  if (!userId) {
-    throw new OnboardingServiceError("MISSING_USER_ID", "userId is required.", 400);
-  }
-  if (!UUID_RE.test(userId)) {
-    throw new OnboardingServiceError("INVALID_USER_ID", "userId must be a valid UUID.", 400);
-  }
-  return userId;
-}
-
-export async function getOnboardingStatus(rawUserId: string | null | undefined): Promise<OnboardingStatusResult> {
-  const userId = validateUserId(rawUserId);
-
-  const client = await getClientByUserId(userId);
-  const accounts = await listBrokerAccountsByUserId(userId);
+export async function getOnboardingStatus(): Promise<OnboardingStatusResult> {
+  const client = await getCurrentClient();
+  const accounts = client ? await listBrokerAccountsByUserId(client.userId) : [];
 
   return {
     clientOnboarded: client !== null,
@@ -127,8 +111,6 @@ export async function getOnboardingAccountTemplates(): Promise<OnboardingAccount
 }
 
 export async function createAccount(request: CreateAccountRequest): Promise<CreateAccountResult> {
-  const userId = validateUserId(request.userId);
-
   if (!request.accountType) {
     throw new OnboardingServiceError("MISSING_ACCOUNT_TYPE", "accountType is required.");
   }
@@ -152,7 +134,8 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     );
   }
 
-  const existingClient = await getClientByUserId(userId);
+  const existingClient = await getCurrentClient();
+  const userIdForClient = existingClient?.userId ?? randomUUID();
 
   if (!existingClient && !request.personalInfo) {
     throw new OnboardingServiceError(
@@ -161,7 +144,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     );
   }
 
-  const existingAccounts = await listBrokerAccountsByUserId(userId);
+  const existingAccounts = existingClient ? await listBrokerAccountsByUserId(userIdForClient) : [];
   const alreadyHasAccount = existingAccounts.some((a) => a.accountType === request.accountType);
   if (alreadyHasAccount) {
     throw new OnboardingServiceError(
@@ -220,7 +203,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
           totalNetWorth: request.suitability.totalNetWorth,
         },
       });
-      client = await createClientForUserId(userId, party.partyId);
+      client = await createClientForUserId(userIdForClient, party.partyId);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected party create integration error.";
       if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
@@ -251,9 +234,9 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     throw new OnboardingServiceError("ACCOUNT_CREATE_FAILED", message, 502);
   }
 
-  await upsertBrokerAccountForUserId(userId, request.accountType, createdHarborAccountId);
+  await upsertBrokerAccountForUserId(userIdForClient, request.accountType, createdHarborAccountId);
 
-  const updatedAccounts = await listBrokerAccountsByUserId(userId);
+  const updatedAccounts = await listBrokerAccountsByUserId(userIdForClient);
   const created = updatedAccounts.find((a) => a.accountType === request.accountType);
 
   return {

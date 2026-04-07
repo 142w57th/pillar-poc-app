@@ -1,4 +1,4 @@
-import { getClientByUserId, listBrokerAccountsByUserId } from "@/server/storage/kv-store";
+import { getClientByUserId, listBrokerAccountsByUserId } from "@/server/storage/keyv-store";
 
 export type LinkedBrokerAccount = {
   accountType: string;

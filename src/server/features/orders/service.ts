@@ -1,6 +1,6 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import { OrdersListResult, SubmitOrderInput, SubmitOrderResult } from "@/server/features/orders/types";
-import { appendOrderForUser, listBrokerAccountsByUserId, listOrdersByUserId } from "@/server/storage/kv-store";
+import { appendOrderForUser, listBrokerAccountsByUserId, listOrdersByUserId } from "@/server/storage/keyv-store";
 
 type OrdersErrorCode =
   | "INVALID_ORDER_INPUT"

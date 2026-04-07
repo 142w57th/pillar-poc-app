@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import dotenv from "dotenv";
+import Keyv from "keyv";
 
 dotenv.config({ path: resolve(process.cwd(), "src/server/.env"), override: false });
 
@@ -62,8 +62,8 @@ type KVStoreData = {
   orders: OrderRecord[];
 };
 
-const DEFAULT_STORE_PATH = resolve(process.cwd(), "src/server/.store/kv.json");
-const STORE_PATH = resolve(process.cwd(), process.env.KV_STORE_FILE || DEFAULT_STORE_PATH);
+const STORE_KEY = "app:kv-store:data";
+const keyv = new Keyv<KVStoreData>();
 
 const EMPTY_STORE: KVStoreData = {
   version: 1,
@@ -75,36 +75,24 @@ const EMPTY_STORE: KVStoreData = {
 
 let writeQueue: Promise<void> = Promise.resolve();
 
-async function ensureStoreDir() {
-  await mkdir(dirname(STORE_PATH), { recursive: true });
-}
-
 async function readStore(): Promise<KVStoreData> {
-  await ensureStoreDir();
+  const parsed = (await keyv.get(STORE_KEY)) as Partial<KVStoreData> | undefined;
 
-  try {
-    const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<KVStoreData>;
-    return {
-      version: 1,
-      clients: parsed.clients ?? [],
-      brokerAccounts: parsed.brokerAccounts ?? [],
-      oauthTokens: parsed.oauthTokens ?? [],
-      orders: parsed.orders ?? [],
-    };
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
-      return structuredClone(EMPTY_STORE);
-    }
-    throw error;
+  if (!parsed) {
+    return structuredClone(EMPTY_STORE);
   }
+
+  return {
+    version: 1,
+    clients: parsed.clients ?? [],
+    brokerAccounts: parsed.brokerAccounts ?? [],
+    oauthTokens: parsed.oauthTokens ?? [],
+    orders: parsed.orders ?? [],
+  };
 }
 
 async function writeStore(data: KVStoreData) {
-  await ensureStoreDir();
-  const tempPath = `${STORE_PATH}.tmp`;
-  await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  await rename(tempPath, STORE_PATH);
+  await keyv.set(STORE_KEY, data);
 }
 
 async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): Promise<T> {
@@ -181,6 +169,16 @@ export async function upsertBrokerAccountForUserId(userId: string, accountType: 
 export async function getClientByUserId(userId: string) {
   const store = await readStore();
   return store.clients.find((item) => item.userId === userId) ?? null;
+}
+
+export async function getCurrentClient() {
+  const store = await readStore();
+  if (store.clients.length === 0) {
+    return null;
+  }
+
+  const sorted = [...store.clients].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  return sorted[0] ?? null;
 }
 
 export async function createClientForUserId(userId: string, clientId?: string) {

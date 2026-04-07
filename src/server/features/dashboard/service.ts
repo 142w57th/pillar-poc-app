@@ -1,5 +1,6 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import { getPartyIdByUserId, listLinkedBrokerAccountByUserId } from "@/server/features/dashboard/repository";
+import { getCurrentClient } from "@/server/storage/keyv-store";
 import {
   DashboardAccountSnapshot,
   DashboardAccountsResult,
@@ -128,28 +129,38 @@ function toDashboardServiceError(error: unknown): DashboardServiceError {
   return new DashboardServiceError("HARBOR_BALANCES_FETCH_FAILED", message, 502);
 }
 
-async function getLinkedAccountsOrThrow(userId: string) {
+async function resolveCurrentClientOrThrow() {
+  const client = await getCurrentClient();
+  if (!client) {
+    throw new DashboardServiceError("SERVER_CONFIG_ERROR", "No onboarded client found in keyv store.", 404);
+  }
+
+  return client;
+}
+
+async function getLinkedAccountsOrThrow() {
+  const client = await resolveCurrentClientOrThrow();
   const harborProvider = getHarborProvider();
-  const linkedAccount = await listLinkedBrokerAccountByUserId(userId);
+  const linkedAccount = await listLinkedBrokerAccountByUserId(client.userId);
 
   if (linkedAccount.length === 0) {
     throw new DashboardServiceError(
       "NO_LINKED_ACCOUNTS",
-      `No linked broker account record found for user ${userId}. Ensure key-value mappings are seeded first.`,
+      `No linked broker account record found for client ${client.id}. Ensure key-value mappings are seeded first.`,
       404,
     );
   }
 
-  return { harborProvider, linkedAccount };
+  return { client, harborProvider, linkedAccount };
 }
 
-export async function getDashboardSnapshot(userId: string): Promise<DashboardResult> {
-  const { harborProvider, linkedAccount } = await getLinkedAccountsOrThrow(userId);
+export async function getDashboardSnapshot(): Promise<DashboardResult> {
+  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
 
   try {
-    const partyId = await getPartyIdByUserId(userId);
+    const partyId = await getPartyIdByUserId(client.userId);
     if (!partyId) {
-      throw new DashboardServiceError("SERVER_CONFIG_ERROR", `No party id found for user ${userId}.`, 500);
+      throw new DashboardServiceError("SERVER_CONFIG_ERROR", `No party id found for client ${client.id}.`, 500);
     }
 
     const response = await harborProvider.fetchBalanceByPartyId(partyId);
@@ -172,7 +183,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardRes
       },
       accounts,
       meta: {
-        userId,
+        userId: client.userId,
         accountCount: accounts.length,
         provider: "harbor",
         generatedAt: new Date().toISOString(),
@@ -183,8 +194,8 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardRes
   }
 }
 
-export async function getDashboardAccountBalances(userId: string): Promise<DashboardAccountsResult> {
-  const { harborProvider, linkedAccount } = await getLinkedAccountsOrThrow(userId);
+export async function getDashboardAccountBalances(): Promise<DashboardAccountsResult> {
+  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
 
   try {
     const accounts = await Promise.all(
@@ -197,7 +208,7 @@ export async function getDashboardAccountBalances(userId: string): Promise<Dashb
     return {
       accounts,
       meta: {
-        userId,
+        userId: client.userId,
         accountCount: accounts.length,
         provider: "harbor",
         generatedAt: new Date().toISOString(),
@@ -208,8 +219,8 @@ export async function getDashboardAccountBalances(userId: string): Promise<Dashb
   }
 }
 
-export async function getBalancesSnapshot(userId: string): Promise<LegacyBalancesResult> {
-  const accountDetails = await getDashboardAccountBalances(userId);
+export async function getBalancesSnapshot(): Promise<LegacyBalancesResult> {
+  const accountDetails = await getDashboardAccountBalances();
   return {
     aggregated: buildAggregate(accountDetails.accounts),
     accounts: accountDetails.accounts,
@@ -218,10 +229,9 @@ export async function getBalancesSnapshot(userId: string): Promise<LegacyBalance
 }
 
 export async function getDashboardAccountBalanceByType(
-  userId: string,
   accountType: string,
 ): Promise<DashboardAccountsResult> {
-  const { harborProvider, linkedAccount } = await getLinkedAccountsOrThrow(userId);
+  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
   const normalizedAccountType = normalizeAccountType(accountType);
   const matchedAccount = linkedAccount.find(
     (account) => normalizeAccountType(account.accountType) === normalizedAccountType,
@@ -241,7 +251,7 @@ export async function getDashboardAccountBalanceByType(
     return {
       accounts: [accountSnapshot],
       meta: {
-        userId,
+        userId: client.userId,
         accountCount: 1,
         provider: "harbor",
         generatedAt: new Date().toISOString(),

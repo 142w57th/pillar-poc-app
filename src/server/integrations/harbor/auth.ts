@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { emitApiLog } from "@/server/api-log/event-bus";
 import { getHarborConfig } from "@/server/integrations/harbor/config";
-import { getOAuthToken, upsertOAuthToken } from "@/server/storage/kv-store";
+import { getOAuthToken, upsertOAuthToken } from "@/server/storage/keyv-store";
 
 type HarborTokenResponse = {
   access_token: string;

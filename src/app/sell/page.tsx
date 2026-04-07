@@ -18,8 +18,6 @@ const ORDER_TYPES: { id: OrderType; label: string; enabled: boolean }[] = [
   { id: "stop", label: "Stop", enabled: false },
   { id: "stop-limit", label: "Stop Limit", enabled: false },
 ];
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
-
 type OrderInstrument = {
   id: string;
   title: string;
@@ -216,7 +214,6 @@ function SellPageContent() {
       const response = await apiFetch<ApiResponse<SubmitOrderPayload>>("/api/v1/orders", {
         method: "POST",
         body: JSON.stringify({
-          userId: DASHBOARD_USER_ID,
           instrumentSymbol: selectedInstrument.symbol,
           assetClass: selectedInstrument.assetClass,
           side: "SELL",
