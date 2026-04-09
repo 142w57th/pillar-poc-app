@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
+import { toCanonicalAssetClassLabel } from "@/lib/account-asset-class";
 import type {
   ApiResponse,
   DashboardPayload,
@@ -43,9 +44,15 @@ function formatCurrency(value: number) {
 }
 
 function formatAccountTypeLabel(value: string) {
+  const normalizedLabel = toCanonicalAssetClassLabel(value);
+  if (normalizedLabel) {
+    return normalizedLabel;
+  }
+
   return value
-    .split("-")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
 }
 

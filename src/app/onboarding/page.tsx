@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "@/lib/api-client";
 import type {
@@ -42,6 +42,11 @@ function formatTemplateCodeLabel(code: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
     .join(" ");
+}
+
+function getAccountTypeDisplayLabel(templateCode: string) {
+  const known = ACCOUNT_TEMPLATE_UI_META[templateCode];
+  return known?.accountType ?? formatTemplateCodeLabel(templateCode);
 }
 
 function buildAccountTypeOption(templateCode: string): AccountTypeOption | undefined {
@@ -176,11 +181,13 @@ const SELECT_CLASS = `${INPUT_CLASS} appearance-none`;
 export default function OnboardingPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const onboardingFormTopRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedAccountType, setSelectedAccountType] = useState<string | null>(null);
   const [personalInfo, setPersonalInfo] = useState<PersonalInfoState>(INITIAL_PERSONAL_INFO);
   const [suitability, setSuitability] = useState<SuitabilityState>(INITIAL_SUITABILITY);
   const [stepIndex, setStepIndex] = useState(0);
+  const [useRequiredPrefill, setUseRequiredPrefill] = useState(false);
 
   const { data: onboardingStatus, isLoading: isStatusLoading } = useQuery({
     queryKey: ["onboarding-status"],
@@ -250,6 +257,10 @@ export default function OnboardingPage() {
     if (availableOptions.length === 0) return false;
     return availableOptions.every((opt) => !canSelectAccount(opt.id));
   }, [accountTypeOptions, canSelectAccount]);
+  const firstSelectableAccountType = useMemo(() => {
+    const availableOptions = accountTypeOptions.filter((opt): opt is AccountTypeOption => Boolean(opt));
+    return availableOptions.find((opt) => canSelectAccount(opt.id)) ?? null;
+  }, [accountTypeOptions, canSelectAccount]);
 
   const createAccountMutation = useMutation({
     mutationFn: async (payload: CreateAccountRequestPayload) => {
@@ -263,6 +274,7 @@ export default function OnboardingPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["onboarding-status"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setUseRequiredPrefill(false);
     },
   });
 
@@ -285,8 +297,71 @@ export default function OnboardingPage() {
       };
     });
 
-  const goNext = () => setStepIndex((current) => Math.min(Math.min(current, maxStepIndex) + 1, maxStepIndex));
+  const goNext = () => {
+    const shouldScrollToTop = currentStepKey === "personalInfo";
+    setStepIndex((current) => Math.min(Math.min(current, maxStepIndex) + 1, maxStepIndex));
+    if (shouldScrollToTop) {
+      requestAnimationFrame(() => {
+        onboardingFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  };
   const goBack = () => setStepIndex((current) => Math.max(Math.min(current, maxStepIndex) - 1, 0));
+  const handleRequiredPrefillToggle = (checked: boolean) => {
+    setUseRequiredPrefill(checked);
+    if (!checked) {
+      if (!clientOnboarded) {
+        setPersonalInfo({ ...INITIAL_PERSONAL_INFO });
+      }
+      setSuitability({ ...INITIAL_SUITABILITY });
+      return;
+    }
+
+    if (firstSelectableAccountType) {
+      setSelectedAccountType(firstSelectableAccountType.id);
+    }
+
+    if (!clientOnboarded) {
+      setPersonalInfo((current) => ({
+        ...current,
+        firstName: "Alex",
+        middleInitial: "D",
+        suffix: "Jr.",
+        lastName: "Morgan",
+        taxId: "123456789",
+        dateOfBirth: "2000-01-15",
+        email: "alex.morgan@example.com",
+        phoneCountryCode: "+1",
+        phoneNumber: "4155550199",
+        legalAddressLine1: "123 Market Street",
+        legalAddressCity: "San Francisco",
+      }));
+    }
+
+    setSuitability((current) => ({
+      ...current,
+      employmentType: "Employed",
+      occupation: "Software Engineer",
+      businessType: "Technology",
+      employer: "Google",
+      businessPhone: "+14155550199",
+      businessPhoneCountryCode: "+1",
+      businessPhoneNumber: "4155550199",
+      businessAddress: "123 Market Street",
+      businessRegion: "US-CA",
+      businessPostalCode: "94105",
+      annualIncome: "120000",
+      liquidNetWorth: "50000",
+      totalNetWorth: "250000",
+      sourceOfFundsItems: ["Wage Income"],
+      timeHorizonMinYears: "1",
+      timeHorizonMaxYears: "10",
+      dividendReinvestmentInstruction: "Reinvest",
+      investmentObjective: "Growth",
+      investmentObjectives: ["Growth"],
+      riskTolerance: "Moderate",
+    }));
+  };
 
   const canContinueFromAccountType = selectedAccountType !== null && canSelectAccount(selectedAccountType);
   const personalInfoHasValidEmail = isValidEmail(personalInfo.email);
@@ -397,6 +472,10 @@ export default function OnboardingPage() {
       : currentStepKey === "personalInfo"
         ? canContinueFromPersonalInfo
         : canSubmitSuitability;
+  const showRequiredPrefillControl =
+    selectedAccountType !== null &&
+    ((currentStepKey === "personalInfo" && !clientOnboarded) ||
+      (currentStepKey === "suitability" && clientOnboarded));
   const showAccountTypeDashboardCta = currentStepKey === "accountType" && noSelectableAccountTypeOptions;
 
   if (isStatusLoading || isTemplatesLoading) {
@@ -448,7 +527,7 @@ export default function OnboardingPage() {
             <h2 className="text-app-primary text-lg font-semibold">Account Created!</h2>
             <p className="text-app-secondary text-sm">
               Your{" "}
-              <span className="font-semibold">{formatTemplateCodeLabel(result.accountType)}</span> account has been
+              <span className="font-semibold">{getAccountTypeDisplayLabel(result.accountType)}</span> account has been
               successfully opened.
             </p>
             <div className="border-app bg-surface-2 mt-2 rounded-lg border px-4 py-3">
@@ -483,7 +562,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl pb-10">
+    <div ref={onboardingFormTopRef} className="mx-auto w-full max-w-3xl pb-10">
       <section className="border-app bg-surface-1 rounded-3xl border shadow-sm">
         {/* Header */}
         <div className="border-app-soft border-b px-5 py-5 @md:px-7">
@@ -555,8 +634,8 @@ export default function OnboardingPage() {
                       isOpened
                         ? "border-app bg-surface-2 cursor-not-allowed opacity-60"
                         : isSelected
-                          ? "border-[color:var(--accent)] bg-surface-2 ring-1 ring-[color:var(--accent)]"
-                          : "border-app bg-surface-2 hover:border-[color:var(--border-hover,var(--border))]"
+                          ? "border-(--accent) bg-surface-2 ring-1 ring-(--accent)"
+                          : "border-app bg-surface-2 hover:border-(--border-hover,var(--border))"
                     }`}
                     aria-pressed={isSelected}
                     aria-disabled={isOpened}
@@ -610,7 +689,20 @@ export default function OnboardingPage() {
         {/* Step: Personal Info (only when client not yet onboarded) */}
         {currentStepKey === "personalInfo" && (
           <div className="px-5 py-5 @md:px-7">
-            <h3 className="text-app-primary text-lg font-semibold">Personal Information</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-app-primary text-lg font-semibold">Personal Information</h3>
+              {showRequiredPrefillControl && (
+                <label className="inline-flex items-center gap-2">
+                  <span className="text-app-primary text-sm font-medium">Auto fill</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-(--accent)"
+                    checked={useRequiredPrefill}
+                    onChange={(e) => handleRequiredPrefillToggle(e.target.checked)}
+                  />
+                </label>
+              )}
+            </div>
             <p className="text-app-secondary mt-1 text-sm">Tell us about yourself</p>
 
             <div className="mt-5 grid grid-cols-1 gap-4 @md:grid-cols-2">
@@ -710,7 +802,20 @@ export default function OnboardingPage() {
         {/* Step: Suitability */}
         {currentStepKey === "suitability" && (
           <div className="px-5 py-5 @md:px-7">
-            <h3 className="text-app-primary text-lg font-semibold">Suitability</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-app-primary text-lg font-semibold">Suitability</h3>
+              {showRequiredPrefillControl && (
+                <label className="inline-flex items-center gap-2">
+                  <span className="text-app-primary text-sm font-medium">Auto fill</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-(--accent)"
+                    checked={useRequiredPrefill}
+                    onChange={(e) => handleRequiredPrefillToggle(e.target.checked)}
+                  />
+                </label>
+              )}
+            </div>
             <p className="text-app-secondary mt-1 text-sm">Required for regulatory compliance</p>
 
             <div className="mt-5 grid grid-cols-1 gap-4 @md:grid-cols-2">

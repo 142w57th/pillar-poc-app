@@ -10,7 +10,7 @@ const DEFAULT_ACCOUNT_SEED = [
   { accountType: "crypto", externalAccountId: "acct-019d6eef-1f81-701f-b2ed-fdbae000300d" },
 ] as const;
 
-const DEMO_PARTY_ID = process.env.DEMO_PARTY_ID ?? "pty-019d6eef-1d5b-7367-887d-91803a87e053";
+const DEMO_PARTY_ID =  "pty-019d6eef-1d5b-7367-887d-91803a87e053";
 
 async function upsertBrokerAccount(clientId: string, accountType: string, externalAccountId: string) {
   await upsertBrokerAccountForClientId(clientId, accountType, externalAccountId);

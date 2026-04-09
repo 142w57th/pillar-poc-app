@@ -1,4 +1,5 @@
 import { getCurrentClient, listBrokerAccountsByClientId } from "@/server/storage/keyv-store";
+import { toCanonicalAssetClassLabel } from "@/lib/account-asset-class";
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import type {
   HarborCreatePaymentAccountResponse,
@@ -37,10 +38,13 @@ export class PaymentsServiceError extends Error {
 }
 
 function toAccountLabel(accountType: string, externalAccountId: string) {
-  const normalizedType = accountType
-    .split("-")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
+  const canonicalLabel = toCanonicalAssetClassLabel(accountType);
+  const normalizedType = canonicalLabel
+    ?? accountType
+      .split(/[-_]/g)
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+      .join(" ");
   return `${normalizedType} ••••${externalAccountId.slice(-4)}`;
 }
 
@@ -52,6 +56,11 @@ function validateClientId(clientId: string) {
 
 function resolveProviderId() {
   return process.env.HARBOR_PROVIDER?.trim().toLowerCase() === "real" ? "harbor" : "mock";  
+}
+
+function isNoPaymentAccountsFoundError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("no payment accounts found") || normalized.includes("\"code\":\"not_found\"");
 }
 
 function formatAmountToUsdString(amountUsd: number) {
@@ -149,6 +158,7 @@ export async function getPaymentInstructions(): Promise<PaymentInstructionsResul
 
 export async function getPaymentAccounts(input: GetPaymentAccountsInput): Promise<PaymentAccountsResult> {
   const harborProvider = getHarborProvider();
+  const provider = resolveProviderId();
 
   try {
     validateClientId(input.clientId);
@@ -156,7 +166,6 @@ export async function getPaymentAccounts(input: GetPaymentAccountsInput): Promis
       clientId: input.clientId,
       type: input.type,
     });
-    const provider = resolveProviderId();
     return {
       data: (response.data ?? []).map(mapPaymentAccount),
       meta: {
@@ -167,6 +176,16 @@ export async function getPaymentAccounts(input: GetPaymentAccountsInput): Promis
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unexpected payment accounts integration error.";
+    if (isNoPaymentAccountsFoundError(message)) {
+      return {
+        data: [],
+        meta: {
+          provider,
+          source: "harbor-provider",
+          generatedAt: new Date().toISOString(),
+        },
+      };
+    }
     if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
       throw new PaymentsServiceError("SERVER_CONFIG_ERROR", message, 500);
     }

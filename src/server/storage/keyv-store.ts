@@ -65,17 +65,6 @@ type KVStoreData = {
 
 const STORE_KEY = "app:kv-store:data";
 const keyv = new Keyv<KVStoreData>();
-const BOOTSTRAP_PARTY_ID = "pty-019d6eef-1d5b-7367-887d-91803a87e053";
-const BOOTSTRAP_ACCOUNTS = [
-  {
-    accountType: "equity",
-    externalAccountId: "acct-019d6eef-1e3b-7658-94c4-94d6d3a7446d",
-  },
-  {
-    accountType: "crypto",
-    externalAccountId: "acct-019d6eef-1f81-701f-b2ed-fdbae000300d",
-  },
-] as const;
 
 const EMPTY_STORE: KVStoreData = {
   version: 1,
@@ -86,7 +75,6 @@ const EMPTY_STORE: KVStoreData = {
 };
 
 let writeQueue: Promise<void> = Promise.resolve();
-let bootstrapPromise: Promise<void> | null = null;
 
 function cloneStore(data?: Partial<KVStoreData>): KVStoreData {
   return {
@@ -98,59 +86,7 @@ function cloneStore(data?: Partial<KVStoreData>): KVStoreData {
   };
 }
 
-async function bootstrapDefaultClientAndAccounts() {
-  const parsed = (await keyv.get(STORE_KEY)) as Partial<KVStoreData> | undefined;
-  const store = cloneStore(parsed);
-  const now = new Date().toISOString();
-
-  let client = store.clients.find((item) => item.id === BOOTSTRAP_PARTY_ID);
-  if (!client) {
-    client = {
-      id: BOOTSTRAP_PARTY_ID,
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.clients.push(client);
-  } else {
-    client.updatedAt = now;
-  }
-
-  for (const account of BOOTSTRAP_ACCOUNTS) {
-    const existing = store.brokerAccounts.find(
-      (item) => item.clientId === client.id && item.accountType === account.accountType,
-    );
-
-    if (existing) {
-      existing.externalAccountId = account.externalAccountId;
-      existing.updatedAt = now;
-      continue;
-    }
-
-    store.brokerAccounts.push({
-      id: randomUUID(),
-      clientId: client.id,
-      accountType: account.accountType,
-      externalAccountId: account.externalAccountId,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  await keyv.set(STORE_KEY, store);
-}
-
-function ensureStoreBootstrapped() {
-  if (!bootstrapPromise) {
-    bootstrapPromise = bootstrapDefaultClientAndAccounts().catch((error) => {
-      bootstrapPromise = null;
-      throw error;
-    });
-  }
-  return bootstrapPromise;
-}
-
 async function readStore(): Promise<KVStoreData> {
-  await ensureStoreBootstrapped();
   const parsed = (await keyv.get(STORE_KEY)) as Partial<KVStoreData> | undefined;
 
   if (!parsed) {
@@ -166,7 +102,6 @@ async function writeStore(data: KVStoreData) {
 
 async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): Promise<T> {
   const run = async () => {
-    await ensureStoreBootstrapped();
     const store = await readStore();
     const result = await mutator(store);
     await writeStore(store);
@@ -180,8 +115,6 @@ async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): P
   );
   return current;
 }
-
-void ensureStoreBootstrapped();
 
 export async function listBrokerAccountsByUserId(userId: string) {
   const store = await readStore();
