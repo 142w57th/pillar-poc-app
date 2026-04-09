@@ -3,6 +3,7 @@ export type InstrumentItem = {
   name: string;
   exchange: string;
   assetClass: string;
+  feedSymbol?: string;
 };
 
 export type InstrumentsResult = {

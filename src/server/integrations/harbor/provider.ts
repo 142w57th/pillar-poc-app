@@ -1,9 +1,14 @@
 import type { HarborBalanceResponse, HarborPartyBalanceResponse } from "@/server/integrations/harbor/balances";
 import type { HarborAccountTemplatesResponse } from "@/server/integrations/harbor/account-templates";
 import type { HarborCreateAccountInput, HarborCreateAccountResult } from "@/server/integrations/harbor/accounts";
-import type { InstrumentsCatalogResponse } from "@/server/integrations/harbor/instruments";
+import type {
+  FetchHarborInstrumentsInput,
+  InstrumentsCatalogResponse,
+} from "@/server/integrations/harbor/instruments";
+import type { FetchHarborQuoteOptions } from "@/server/integrations/harbor/quotes";
 import type { HarborCreatePartyInput, HarborCreatePartyResult } from "@/server/integrations/harbor/parties";
 import type {
+  HarborFetchOrdersInput,
   HarborOrdersResponse,
   TradeOrderSubmitRequest,
   TradeOrderSubmitResult,
@@ -31,15 +36,16 @@ export type HarborProvider = {
   fetchAccountTemplates(): Promise<HarborAccountTemplatesResponse>;
   fetchBalanceByAccountId(accountId: string): Promise<HarborBalanceResponse>;
   fetchBalanceByPartyId(partyId: string): Promise<HarborPartyBalanceResponse>;
-  fetchInstruments(): Promise<InstrumentsCatalogResponse>;
+  fetchInstruments(input?: FetchHarborInstrumentsInput): Promise<InstrumentsCatalogResponse>;
   submitOrder(input: TradeOrderSubmitRequest): Promise<TradeOrderSubmitResult>;
-  fetchOrders(partyId: string): Promise<HarborOrdersResponse>;
+  fetchOrders(input: HarborFetchOrdersInput): Promise<HarborOrdersResponse>;
   fetchPaymentInstructions(): Promise<HarborPaymentInstructionsResponse>;
   fetchPaymentAccounts(input: HarborGetPaymentAccountsInput): Promise<HarborPaymentAccountsResponse>;
   createPaymentAccount(input: HarborCreatePaymentAccountInput): Promise<HarborCreatePaymentAccountResponse>;
   submitDeposit(input: HarborSubmitDepositRequest): Promise<HarborSubmitDepositResult>;
-  fetchPositions(partyId: string): Promise<PositionsResponse>;
-  fetchQuote(symbol: string): Promise<QuoteResponse>;
+  fetchPositions(accountId: string): Promise<PositionsResponse>;
+  fetchPositionsByParty(partyId: string): Promise<PositionsResponse>;
+  fetchQuote(symbol: string, options?: FetchHarborQuoteOptions): Promise<QuoteResponse>;
 };
 
 function resolveHarborProviderMode(): HarborProviderMode {

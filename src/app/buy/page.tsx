@@ -6,9 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api-client";
-import { ApiResponse, DashboardPayload, InstrumentsCatalogPayload, QuotePayload, SubmitOrderPayload } from "@/types/api";
-
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
+import { ApiResponse, BalancesPayload, QuotePayload, SubmitOrderPayload } from "@/types/api";
 
 type AssetClass = "Equity" | "Crypto" | "Event Contract";
 type EventSide = "YES" | "NO";
@@ -28,14 +26,36 @@ type OrderInstrument = {
   assetClass: AssetClass;
 };
 
+type OrderFeedback =
+  | {
+      type: "success";
+      message: string;
+      orderId: string;
+      status: string;
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
 const FALLBACK_BUYING_POWER = 0;
 
-function toOrderAssetClass(value: string): AssetClass | null {
-  if (value === "Equity" || value === "Crypto" || value === "Event Contract") {
-    return value;
-  }
+function toQuoteAssetClassParam(value: AssetClass | undefined) {
+  if (value === "Crypto") return "CRYPTO";
+  if (value === "Event Contract") return "OPTION";
+  return "EQUITY";
+}
 
-  return null;
+function toOrderAssetClass(value: string | null): AssetClass | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "CRYPTO") return "Crypto";
+  if (normalized === "OPTION" || normalized === "EVENT_CONTRACT" || normalized === "EVENT CONTRACT") {
+    return "Event Contract";
+  }
+  if (normalized === "EQUITY") return "Equity";
+  if (value === "Equity" || value === "Crypto" || value === "Event Contract") return value;
+  return undefined;
 }
 
 function parseAmount(value: string) {
@@ -88,86 +108,38 @@ function toCryptoBaseAsset(symbol: string) {
 
 function BuyPageContent() {
   const searchParams = useSearchParams();
-  const symbolFromUrl = searchParams.get("symbol");
+  const symbolFromUrl = searchParams.get("symbol")?.trim() ?? "";
+  const selectedAssetClassFromUrl = toOrderAssetClass(searchParams.get("assetClass"));
 
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [comingSoonMessage, setComingSoonMessage] = useState<string | null>(null);
   const [eventSide, setEventSide] = useState<EventSide>("YES");
-  const [amountInput, setAmountInput] = useState("1000");
-  const [lastPreviewMessage, setLastPreviewMessage] = useState("");
+  const [amountInput, setAmountInput] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
-  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
-
-  const { data: dashboardData } = useQuery({
-    queryKey: ["dashboard", DASHBOARD_USER_ID],
-    queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardPayload>>(
-        `/api/v1/dashboard?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
-      if (!response.success) {
-        throw new Error(response.error.message);
-      }
-
-      return response.data;
-    },
-    staleTime: 60_000,
-  });
-
-  const buyingPower = dashboardData?.aggregated.buyingPower ?? FALLBACK_BUYING_POWER;
-
-  const { data: instrumentsData, isLoading: isInstrumentsLoading, isError: isInstrumentsError } = useQuery({
-    queryKey: ["instruments-catalog-orders"],
-    queryFn: async () => {
-      const response = await apiFetch<ApiResponse<InstrumentsCatalogPayload>>("/api/v1/instruments");
-      if (!response.success) {
-        throw new Error(response.error.message);
-      }
-
-      return response.data;
-    },
-    staleTime: 60_000,
-  });
-
-  const orderInstruments = useMemo<OrderInstrument[]>(() => {
-    const instruments = instrumentsData?.instruments ?? [];
-
-    return instruments.reduce<OrderInstrument[]>((result, instrument) => {
-      const assetClass = toOrderAssetClass(instrument.assetClass);
-      if (!assetClass) {
-        return result;
-      }
-
-      result.push({
-        id: `catalog-${instrument.symbol}`,
-        title:
-          assetClass === "Crypto"
-            ? toCryptoPairLabel(instrument.symbol)
-            : assetClass === "Event Contract"
-              ? instrument.name
-              : instrument.symbol,
-        symbol: instrument.symbol,
-        assetClass,
-      });
-      return result;
-    }, []);
-  }, [instrumentsData]);
+  const [orderFeedback, setOrderFeedback] = useState<OrderFeedback | null>(null);
 
   const selectedInstrument = useMemo(() => {
     if (!symbolFromUrl) {
-      return orderInstruments[0];
+      return null;
     }
 
-    return (
-      orderInstruments.find((instrument) => instrument.symbol.toUpperCase() === symbolFromUrl.toUpperCase()) ??
-      orderInstruments[0]
-    );
-  }, [orderInstruments, symbolFromUrl]);
+    const normalizedSymbol = symbolFromUrl.toUpperCase();
+    const selectedAssetClass = selectedAssetClassFromUrl ?? "Equity";
+    return {
+      id: `symbol-${normalizedSymbol}`,
+      title: selectedAssetClass === "Crypto" ? toCryptoPairLabel(normalizedSymbol) : normalizedSymbol,
+      symbol: normalizedSymbol,
+      assetClass: selectedAssetClass,
+    } satisfies OrderInstrument;
+  }, [selectedAssetClassFromUrl, symbolFromUrl]);
 
   const { data: quoteData, isLoading: isQuoteLoading } = useQuery({
-    queryKey: ["quote", selectedInstrument?.symbol],
+    queryKey: ["quote", selectedInstrument?.symbol, selectedInstrument?.assetClass],
     queryFn: async () => {
       const response = await apiFetch<ApiResponse<QuotePayload>>(
-        `/api/v1/quotes?symbol=${encodeURIComponent(selectedInstrument!.symbol)}`,
+        `/api/v1/quotes?symbol=${encodeURIComponent(selectedInstrument!.symbol)}&assetClass=${encodeURIComponent(
+          toQuoteAssetClassParam(selectedInstrument?.assetClass),
+        )}&includeExtendedHours=true`,
       );
       if (!response.success) {
         throw new Error(response.error.message);
@@ -179,12 +151,35 @@ function BuyPageContent() {
     enabled: !!selectedInstrument?.symbol,
   });
 
+  const resolvedAssetClass = quoteData?.quote.assetClass ?? selectedInstrument?.assetClass ;
+  const balancesAssetClassParam = toQuoteAssetClassParam(resolvedAssetClass);
+  const { data: balancesData, isLoading: isBalancesLoading } = useQuery({
+    queryKey: ["balances-buying-power", balancesAssetClassParam],
+    queryFn: async () => {
+      const response = await apiFetch<ApiResponse<BalancesPayload>>(
+        `/api/v1/balances?scope=account&assetClass=${encodeURIComponent(balancesAssetClassParam)}`,
+      );
+      if (!response.success) {
+        throw new Error(response.error.message);
+      }
+
+      return response.data;
+    },
+    staleTime: 60_000,
+    enabled: !!selectedInstrument?.symbol,
+  });
+  const displayTitle =
+    quoteData?.quote.instrumentName ??
+    (resolvedAssetClass === "Crypto"
+      ? toCryptoPairLabel(selectedInstrument?.symbol ?? "")
+      : selectedInstrument?.symbol ?? "");
   const quotePrice = quoteData?.quote.price ?? 0;
   const eventYesPrice = quoteData?.quote.eventPricing?.yesPrice ?? 0;
   const eventNoPrice = quoteData?.quote.eventPricing?.noPrice ?? 0;
+  const buyingPower = balancesData?.aggregated.buyingPower ?? FALLBACK_BUYING_POWER;
 
   const amount = useMemo(() => parseAmount(amountInput), [amountInput]);
-  const isEventContract = selectedInstrument?.assetClass === "Event Contract";
+  const isEventContract = resolvedAssetClass === "Event Contract";
 
   const eventSidePrice = useMemo(() => {
     if (!isEventContract) {
@@ -222,7 +217,7 @@ function BuyPageContent() {
       return;
     }
 
-    setSubmitErrorMessage(null);
+    setOrderFeedback(null);
     setIsSubmittingOrder(true);
 
     try {
@@ -234,9 +229,8 @@ function BuyPageContent() {
       const response = await apiFetch<ApiResponse<SubmitOrderPayload>>("/api/v1/orders", {
         method: "POST",
         body: JSON.stringify({
-          userId: DASHBOARD_USER_ID,
           instrumentSymbol: selectedInstrument.symbol,
-          assetClass: selectedInstrument.assetClass,
+          assetClass: resolvedAssetClass,
           side: "BUY",
           amountUsd: amount,
           pricePerUnit,
@@ -249,10 +243,18 @@ function BuyPageContent() {
       }
 
       const orderStatus = response.data.order.status.toUpperCase();
-      setLastPreviewMessage(`Order submitted (${submitButtonLabel}) - status: ${orderStatus}.`);
+      setOrderFeedback({
+        type: "success",
+        message: `${submitButtonLabel} order placed successfully.`,
+        orderId: response.data.order.orderId,
+        status: orderStatus,
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Order submission failed.";
-      setSubmitErrorMessage(message);
+      setOrderFeedback({
+        type: "error",
+        message,
+      });
     } finally {
       setIsSubmittingOrder(false);
     }
@@ -262,10 +264,49 @@ function BuyPageContent() {
     return (
       <div className="mx-auto w-full max-w-md pb-10">
         <div className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
-          <p className="text-app-secondary text-sm">
-            {isInstrumentsLoading ? "Loading instruments..." : "Unable to load instruments for order entry."}
-          </p>
+          <p className="text-app-secondary text-sm">No instrument selected. Open Buy from an instrument page.</p>
         </div>
+      </div>
+    );
+  }
+
+  if (orderFeedback?.type === "success") {
+    return (
+      <div className="mx-auto w-full max-w-md pb-10">
+        <section className="border-app bg-surface-1 rounded-2xl border p-5 shadow-sm @md:p-6">
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <span className="text-2xl">✅</span>
+            <h2 className="text-app-primary text-lg font-semibold">Order placed successfully</h2>
+            <p className="text-app-secondary text-sm">
+              Your {submitButtonLabel} order for{" "}
+              <span className="text-app-primary font-semibold">{selectedInstrument.symbol}</span> has been submitted.
+            </p>
+            <div className="border-app bg-surface-2 mt-2 w-full rounded-lg border px-4 py-3 text-left">
+              <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Order ID</p>
+              <p className="text-app-primary mt-1 break-all font-mono text-sm">{orderFeedback.orderId}</p>
+              <p className="text-app-muted mt-3 text-xs uppercase tracking-[0.12em]">Status</p>
+              <p className="text-app-primary mt-1 text-sm font-semibold">{orderFeedback.status}</p>
+            </div>
+            <div className="mt-4 flex w-full flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderFeedback(null);
+                  setAmountInput("");
+                }}
+                className="border-app bg-surface-2 text-app-primary rounded-xl border px-4 py-2.5 text-sm font-semibold transition hover:opacity-90"
+              >
+                Place another order
+              </button>
+              <Link
+                href="/"
+                className="bg-app-accent text-app-accent-contrast inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition hover:opacity-90"
+              >
+                Go to Dashboard
+              </Link>
+            </div>
+          </div>
+        </section>
       </div>
     );
   }
@@ -293,18 +334,18 @@ function BuyPageContent() {
                 <path d="M15 18L9 12L15 6" />
               </svg>
             </Link>
-            <h2 className="text-app-primary text-base font-semibold">{selectedInstrument.title}</h2>
+            <h2 className="text-app-primary text-base font-semibold">{displayTitle}</h2>
           </div>
-          <span className="text-app-muted text-xs">{selectedInstrument.assetClass}</span>
+          <span className="text-app-muted text-xs">{resolvedAssetClass}</span>
         </div>
-        {isInstrumentsLoading ? <p className="text-app-secondary mb-3 text-xs">Loading market instruments...</p> : null}
-        {isInstrumentsError ? (
-          <p className="text-negative mb-3 text-xs">Instrument API unavailable.</p>
-        ) : null}
 
         <div className="border-app bg-surface-2 mb-4 rounded-lg border px-3 py-2.5">
           <p className="text-app-muted text-xs uppercase tracking-[0.08em]">Buying power</p>
-          <p className="text-app-primary mt-1 text-sm font-semibold">{formatCurrency(buyingPower)}</p>
+          {isBalancesLoading ? (
+            <p className="text-app-secondary mt-1 text-sm">Loading...</p>
+          ) : (
+            <p className="text-app-primary mt-1 text-sm font-semibold">{formatCurrency(buyingPower)}</p>
+          )}
         </div>
 
         <div className="border-app bg-surface-2 mb-4 rounded-lg border px-3 py-2.5">
@@ -369,7 +410,7 @@ function BuyPageContent() {
               inputMode="decimal"
               value={amountInput}
               onChange={(event) => setAmountInput(event.target.value)}
-              placeholder="0"
+              placeholder="100"
               className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </div>
@@ -434,8 +475,12 @@ function BuyPageContent() {
           {isSubmittingOrder ? "Submitting..." : submitButtonLabel}
         </button>
 
-        {lastPreviewMessage ? <p className="text-app-secondary mt-2 text-xs">{lastPreviewMessage}</p> : null}
-        {submitErrorMessage ? <p className="text-negative mt-2 text-xs">{submitErrorMessage}</p> : null}
+        {orderFeedback?.type === "error" ? (
+          <div className="border-negative bg-negative/10 mt-3 rounded-lg border px-3 py-2.5">
+            <p className="text-negative text-sm font-semibold">Order failed</p>
+            <p className="text-negative mt-1 text-xs">{orderFeedback.message}</p>
+          </div>
+        ) : null}
       </form>
     </div>
   );

@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  getClientByUserId,
-  createClientForUserId,
-  listBrokerAccountsByUserId,
-  upsertBrokerAccountForUserId,
-} from "@/server/storage/kv-store";
+  getCurrentClient,
+  createClient,
+  listBrokerAccountsByClientId,
+  upsertBrokerAccountForClientId,
+} from "@/server/storage/keyv-store";
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
+import { ACCOUNT_TEMPLATE_CODES, toAccountTemplateCode } from "@/lib/account-asset-class";
 import type {
   OnboardingStatusResult,
   OnboardingAccountTemplatesResult,
@@ -15,8 +16,6 @@ import type {
 } from "@/server/features/onboarding/types";
 
 type OnboardingErrorCode =
-  | "MISSING_USER_ID"
-  | "INVALID_USER_ID"
   | "MISSING_ACCOUNT_TYPE"
   | "INVALID_ACCOUNT_TYPE"
   | "ACCOUNT_ALREADY_EXISTS"
@@ -29,15 +28,7 @@ type OnboardingErrorCode =
   | "SERVER_CONFIG_ERROR"
   | "SERVER_ERROR";
 
-const VALID_ACCOUNT_TYPES = [
-  "equity",
-  "crypto",
-  "event-contract",
-  "EVENT_CONTRACTS_STANDARD",
-  "DIGITAL_ASSETS_STANDARD",
-  "RETAIL_SELF_DIRECTED_STANDARD",
-  "ADVISOR_MANAGED_TRUST_STANDARD",
-] as const;
+const VALID_ACCOUNT_TYPES = [ACCOUNT_TEMPLATE_CODES.CRYPTO, ACCOUNT_TEMPLATE_CODES.EQUITY] as const;
 
 export class OnboardingServiceError extends Error {
   code: OnboardingErrorCode;
@@ -50,22 +41,11 @@ export class OnboardingServiceError extends Error {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function resolveAccountTemplateCode(accountType: string): string {
-  const normalized = accountType.trim().toUpperCase();
-  if (
-    normalized === "EVENT_CONTRACTS_STANDARD" ||
-    normalized === "DIGITAL_ASSETS_STANDARD" ||
-    normalized === "RETAIL_SELF_DIRECTED_STANDARD" ||
-    normalized === "ADVISOR_MANAGED_TRUST_STANDARD"
-  ) {
-    return normalized;
+  const resolved = toAccountTemplateCode(accountType);
+  if (resolved) {
+    return resolved;
   }
-
-  if (normalized === "EVENT-CONTRACT") return "EVENT_CONTRACTS_STANDARD";
-  if (normalized === "CRYPTO") return "DIGITAL_ASSETS_STANDARD";
-  if (normalized === "EQUITY") return "RETAIL_SELF_DIRECTED_STANDARD";
 
   throw new OnboardingServiceError(
     "INVALID_ACCOUNT_TYPE",
@@ -74,26 +54,26 @@ function resolveAccountTemplateCode(accountType: string): string {
   );
 }
 
-function validateUserId(userId: string | null | undefined): string {
-  if (!userId) {
-    throw new OnboardingServiceError("MISSING_USER_ID", "userId is required.", 400);
+function resolveAccountTemplateCodeOrNull(accountType: string): string | null {
+  try {
+    return resolveAccountTemplateCode(accountType);
+  } catch {
+    return null;
   }
-  if (!UUID_RE.test(userId)) {
-    throw new OnboardingServiceError("INVALID_USER_ID", "userId must be a valid UUID.", 400);
-  }
-  return userId;
 }
 
-export async function getOnboardingStatus(rawUserId: string | null | undefined): Promise<OnboardingStatusResult> {
-  const userId = validateUserId(rawUserId);
-
-  const client = await getClientByUserId(userId);
-  const accounts = await listBrokerAccountsByUserId(userId);
+export async function getOnboardingStatus(): Promise<OnboardingStatusResult> {
+  const client = await getCurrentClient();
+  const accounts = client ? await listBrokerAccountsByClientId(client.id) : [];
+  const normalizedAccounts = accounts.map((account) => ({
+    accountType: resolveAccountTemplateCodeOrNull(account.accountType) ?? account.accountType,
+    externalAccountId: account.externalAccountId,
+  }));
 
   return {
     clientOnboarded: client !== null,
     clientId: client?.id ?? null,
-    accounts,
+    accounts: normalizedAccounts,
   };
 }
 
@@ -127,16 +107,16 @@ export async function getOnboardingAccountTemplates(): Promise<OnboardingAccount
 }
 
 export async function createAccount(request: CreateAccountRequest): Promise<CreateAccountResult> {
-  const userId = validateUserId(request.userId);
-
   if (!request.accountType) {
     throw new OnboardingServiceError("MISSING_ACCOUNT_TYPE", "accountType is required.");
   }
 
-  if (!VALID_ACCOUNT_TYPES.includes(request.accountType as (typeof VALID_ACCOUNT_TYPES)[number])) {
+  const accountTemplateCode = resolveAccountTemplateCode(request.accountType);
+
+  if (!VALID_ACCOUNT_TYPES.includes(accountTemplateCode as (typeof VALID_ACCOUNT_TYPES)[number])) {
     throw new OnboardingServiceError(
       "INVALID_ACCOUNT_TYPE",
-      `Invalid accountType "${request.accountType}". Must be one of: ${VALID_ACCOUNT_TYPES.join(", ")}`,
+      `Invalid accountType "${request.accountType}". Must resolve to one of: ${VALID_ACCOUNT_TYPES.join(", ")}`,
     );
   }
 
@@ -152,7 +132,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     );
   }
 
-  const existingClient = await getClientByUserId(userId);
+  const existingClient = await getCurrentClient();
 
   if (!existingClient && !request.personalInfo) {
     throw new OnboardingServiceError(
@@ -161,12 +141,14 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     );
   }
 
-  const existingAccounts = await listBrokerAccountsByUserId(userId);
-  const alreadyHasAccount = existingAccounts.some((a) => a.accountType === request.accountType);
+  const existingAccounts = existingClient ? await listBrokerAccountsByClientId(existingClient.id) : [];
+  const alreadyHasAccount = existingAccounts.some(
+    (a) => resolveAccountTemplateCodeOrNull(a.accountType) === accountTemplateCode,
+  );
   if (alreadyHasAccount) {
     throw new OnboardingServiceError(
       "ACCOUNT_ALREADY_EXISTS",
-      `An account of type "${request.accountType}" already exists for this user.`,
+      `An account of type "${accountTemplateCode}" already exists for this user.`,
       409,
     );
   }
@@ -220,7 +202,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
           totalNetWorth: request.suitability.totalNetWorth,
         },
       });
-      client = await createClientForUserId(userId, party.partyId);
+      client = await createClient(party.partyId);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected party create integration error.";
       if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
@@ -230,7 +212,6 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     }
   }
 
-  const accountTemplateCode = resolveAccountTemplateCode(request.accountType);
   let createdHarborAccountId: string;
   try {
     const createdAccount = await harborProvider.createAccount({
@@ -251,15 +232,15 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     throw new OnboardingServiceError("ACCOUNT_CREATE_FAILED", message, 502);
   }
 
-  await upsertBrokerAccountForUserId(userId, request.accountType, createdHarborAccountId);
+  await upsertBrokerAccountForClientId(client.id, accountTemplateCode, createdHarborAccountId);
 
-  const updatedAccounts = await listBrokerAccountsByUserId(userId);
-  const created = updatedAccounts.find((a) => a.accountType === request.accountType);
+  const updatedAccounts = await listBrokerAccountsByClientId(client.id);
+  const created = updatedAccounts.find((a) => a.accountType === accountTemplateCode);
 
   return {
     clientId: client.id,
     accountId: created?.externalAccountId ?? createdHarborAccountId,
     externalAccountId: created?.externalAccountId ?? createdHarborAccountId,
-    accountType: request.accountType,
+    accountType: accountTemplateCode,
   };
 }

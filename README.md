@@ -27,7 +27,7 @@ Open http://localhost:3000.
 - `npm run start` - start production server
 - `npm run lint` - run ESLint
 - `npm run typecheck` - run TypeScript checks
-- `npm run storage:seed` - seed local client-account mappings into file storage
+- `npm run storage:seed` - seed local client-account mappings into in-memory storage
 
 ## API Endpoints
 
@@ -46,7 +46,6 @@ Copy `.env.example` to `.env` and adjust values as needed:
 
 - `NEXT_PUBLIC_APP_NAME`
 - `NEXT_PUBLIC_API_BASE_URL`
-- `KV_STORE_FILE` (optional, defaults to `src/server/.store/kv.json`)
 - `DEMO_USER_ID` (used by local seed utility)
 - `NEXT_PUBLIC_DEMO_USER_ID` (used by dashboard/buy/sell/transfer UI requests)
 - `HARBOR_PROVIDER` (`mock` by default, set `real` to call Harbor APIs for all domains)
@@ -70,9 +69,9 @@ Harbor is the single backend provider for all data domains (balances, instrument
 - Use `HARBOR_PROVIDER=real` to route all API calls through the live Harbor integration (with OAuth auth).
 - All API response contracts stay the same in both modes.
 
-Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`. Submitted orders are persisted in the local KV store file for history/audit usage.
+Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`. Submitted orders are persisted in the in-memory `Keyv` store for history/audit usage while the server process is running.
 
-Runtime storage uses a local JSON key-value file and reads environment variables from `src/server/.env`.
+Runtime storage uses `Keyv` with the default in-memory backend and reads environment variables from `src/server/.env`.
 
 ## Project Structure
 

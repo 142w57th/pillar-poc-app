@@ -6,7 +6,12 @@ import { fail, ok } from "@/server/http/response";
 export async function GET(request: NextRequest) {
   try {
     const symbol = request.nextUrl.searchParams.get("symbol") ?? "";
-    const payload = await getQuote(symbol);
+    const includeExtendedHoursRaw = request.nextUrl.searchParams.get("includeExtendedHours");
+    const includeExtendedHours = includeExtendedHoursRaw === "true";
+    const payload = await getQuote(symbol, {
+      assetClass: request.nextUrl.searchParams.get("assetClass") ?? undefined,
+      includeExtendedHours,
+    });
     return ok(payload);
   } catch (error: unknown) {
     if (error instanceof QuotesServiceError) {

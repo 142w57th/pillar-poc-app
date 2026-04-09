@@ -18,12 +18,41 @@ export type HarborBalanceResponse = {
   meta: Record<string, unknown>;
 };
 
-export type HarborPartyBalanceData = Omit<HarborBalanceData, "accountId"> & {
+export type HarborPartyAccountBalanceData = {
+  accountNumber: string;
+  accountProviderId: string;
+  currency: string;
+  updatedOn: string;
+  fundsAvailable: number;
+  freeCreditBalance: number;
+  cashBalances: {
+    cashBalance: number;
+    cashAvailable: number;
+  };
+  marginBalances: {
+    marginBalance: number;
+    buyingPower: number;
+    cashAvailable: number;
+  };
+  sweepBalances: {
+    sweepBalance: number;
+  };
+  otherBalances: {
+    fedCallBalance: number;
+    houseCallBalance: number;
+    specialMiscellaneousBalances: number;
+  };
+};
+
+export type HarborPartySummaryBalanceData = Omit<HarborBalanceData, "accountId"> & {
   partyId: string;
 };
 
 export type HarborPartyBalanceResponse = {
-  data: HarborPartyBalanceData;
+  data: {
+    accounts: HarborPartyAccountBalanceData[];
+    party: HarborPartySummaryBalanceData;
+  };
   meta: Record<string, unknown>;
 };
 
@@ -38,6 +67,9 @@ export async function fetchHarborBalanceByAccountId(accountId: string) {
 
 export async function fetchHarborBalanceByPartyId(partyId: string) {
   const config = getHarborConfig();
-  const path = `${config.partyBalancesPath}/${encodeURIComponent(partyId)}/balances`;
+  const encodedPartyId = encodeURIComponent(partyId);
+  const path = config.partyBalancesPath.includes("{partyId}")
+    ? config.partyBalancesPath.replace("{partyId}", encodedPartyId)
+    : `${config.partyBalancesPath.replace(/\/+$/, "")}/${encodedPartyId}/balances`;
   return harborFetch<HarborPartyBalanceResponse>(path);
 }

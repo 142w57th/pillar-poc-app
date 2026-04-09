@@ -6,22 +6,10 @@ import {
   PaymentsServiceError,
 } from "@/server/features/payments/service";
 
-function parseUserId(request: NextRequest) {
-  const userId = request.nextUrl.searchParams.get("userId") ?? request.headers.get("x-user-id") ?? "";
-  if (!userId) {
-    throw new PaymentsServiceError(
-      "INVALID_DEPOSIT_INPUT",
-      "Missing userId. Provide ?userId=<uuid> or x-user-id header.",
-      400,
-    );
-  }
-  return userId;
-}
-
 export async function GET(request: NextRequest) {
+  void request;
   try {
-    const userId = parseUserId(request);
-    const payload = await getDestinationAccounts(userId);
+    const payload = await getDestinationAccounts();
     return ok(payload);
   } catch (error: unknown) {
     if (error instanceof PaymentsServiceError) {

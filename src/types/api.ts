@@ -26,11 +26,6 @@ export type DashboardAccountPayload = {
   calculatedAt: string;
 };
 
-export type DashboardAccountSummaryPayload = {
-  accountType: string;
-  accountId: string;
-};
-
 export type DashboardAggregatedPayload = {
   totalMarketValue: number;
   totalCostBasis: number;
@@ -46,7 +41,7 @@ export type BalancesPayload = {
   aggregated: DashboardAggregatedPayload;
   accounts: DashboardAccountPayload[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;
@@ -55,9 +50,9 @@ export type BalancesPayload = {
 
 export type DashboardPayload = {
   aggregated: DashboardAggregatedPayload;
-  accounts: DashboardAccountSummaryPayload[];
+  accounts: DashboardAccountPayload[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;
@@ -67,7 +62,7 @@ export type DashboardPayload = {
 export type DashboardAccountsPayload = {
   accounts: DashboardAccountPayload[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;
@@ -79,6 +74,7 @@ export type InstrumentPayload = {
   name: string;
   exchange: string;
   assetClass: string;
+  feedSymbol?: string;
 };
 
 export type InstrumentsCatalogPayload = {
@@ -93,13 +89,15 @@ export type InstrumentsCatalogPayload = {
 
 export type PositionPayload = {
   symbol: string;
-  assetClass: "Equity" | "Crypto" | "Event Contract";
+  assetClass: "Equity" | "Crypto";
   lastPrice: number;
   dayChangePercent: number;
   preMarketPrice: number;
   preMarketChangePercent: number;
   marketValue: number;
+  investedValue: number;
   pnlPercent: number;
+  pnlAmount: number;
   eventSide?: "YES" | "NO";
   eventYesPrice?: number;
   eventNoPrice?: number;
@@ -130,7 +128,30 @@ export type QuotePayload = {
     symbol: string;
     assetClass: "Equity" | "Crypto" | "Event Contract";
     price: number;
+    change: number;
     dayChangePercent: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number | null;
+    previousClose: number;
+    volume: number;
+    vwap: number | null;
+    tradingDay: string;
+    marketSession:
+      | "OPEN"
+      | "CLOSED"
+      | "PRE_MARKET"
+      | "AFTER_HOURS"
+      | "HALTED"
+      | "EARLY_CLOSE"
+      | "UNKNOWN";
+    afterHoursPrice: number | null;
+    preMarketPrice: number | null;
+    updatedAt: string;
+    instrumentName?: string;
+    exchange?: string;
+    instrumentType?: string;
     position?: QuotePositionPayload;
     eventPricing?: QuoteEventPricingPayload;
   };
@@ -163,7 +184,6 @@ export type OnboardingAccountTemplatesPayload = {
 };
 
 export type CreateAccountRequestPayload = {
-  userId: string;
   accountType: string;
   personalInfo?: {
     firstName: string;
@@ -217,7 +237,6 @@ export type CreateAccountResultPayload = {
 };
 
 export type SubmitOrderRequestPayload = {
-  userId: string;
   instrumentSymbol: string;
   assetClass: "Equity" | "Crypto" | "Event Contract";
   side: "BUY" | "SELL";
@@ -265,7 +284,7 @@ export type OrdersPayload = {
     providerReference?: string;
   }>;
   meta: {
-    userId: string;
+    clientId: string;
     count: number;
     provider: "mock" | "harbor";
     source: string;
@@ -334,7 +353,6 @@ export type PaymentAccountsPayload = {
 
 export type CreatePaymentAccountRequestPayload = {
   data: {
-    clientId: string;
     currency: string;
     country: string;
     maskedIdentifier?: string;
@@ -343,15 +361,10 @@ export type CreatePaymentAccountRequestPayload = {
     metadata?: Record<string, unknown>;
     details: {
       type: "BANK_ACCOUNT";
-      accountHolderName: string;
-      accountNumber: string;
-      accountType: "CHECKING" | "SAVINGS";
-      bankName: string;
-      bankAddress: string;
-      bankIdentifierType: "ABA_ROUTING" | "IFSC" | "IBAN";
-      bankIdentifier: string;
+      bankName?: string;
     };
   };
+  meta?: Record<string, unknown>;
 };
 
 export type CreatePaymentAccountPayload = {
@@ -373,15 +386,15 @@ export type DestinationAccountPayload = {
 export type DestinationAccountsPayload = {
   accounts: DestinationAccountPayload[];
   meta: {
-    userId: string;
+    clientId: string;
     count: number;
     source: "kv-store";
   };
 };
 
 export type SubmitDepositRequestPayload = {
-  userId: string;
-  sourceInstructionId?: string;
+  direction?: "DEPOSIT" | "WITHDRAW";
+  sourcePaymentAccountId?: string;
   destinationAccountId: string;
   amountUsd: number;
 };

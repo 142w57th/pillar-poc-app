@@ -4,9 +4,9 @@ import { fail, ok } from "@/server/http/response";
 import { getOnboardingStatus, OnboardingServiceError } from "@/server/features/onboarding/service";
 
 export async function GET(request: NextRequest) {
+  void request;
   try {
-    const userId = request.nextUrl.searchParams.get("userId") ?? request.headers.get("x-user-id");
-    const payload = await getOnboardingStatus(userId);
+    const payload = await getOnboardingStatus();
     return ok(payload);
   } catch (error: unknown) {
     if (error instanceof OnboardingServiceError) {

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { emitApiLog } from "@/server/api-log/event-bus";
 import type { HttpMethod } from "@/server/api-log/types";
 import { buildHarborCreateAccountRequest } from "@/server/integrations/harbor/accounts";
+import type { FetchHarborInstrumentsInput } from "@/server/integrations/harbor/instruments";
+import type { FetchHarborQuoteOptions } from "@/server/integrations/harbor/quotes";
 import type { TradeOrderSubmitRequest } from "@/server/integrations/harbor/orders";
 import { buildHarborCreatePartyRequest } from "@/server/integrations/harbor/parties";
 import { buildHarborCreatePaymentAccountRequest } from "@/server/integrations/harbor/payments";
@@ -49,7 +51,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchInstruments: {
     method: "GET",
-    path: "/instruments",
+    path: "/v2/instruments/universes/streaming-demo",
     description: "Fetch instruments catalog",
   },
   submitOrder: {
@@ -59,8 +61,21 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchOrders: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/trading/parties/${partyId}/orders`,
-    description: "Fetch party orders",
+    path: (input: unknown) => {
+      if (!input || typeof input !== "object") return "/trading/v1/orders";
+      const params = new URLSearchParams();
+      const cast = input as Record<string, unknown>;
+      if (typeof cast.accountId === "string" && cast.accountId) params.set("accountId", cast.accountId);
+      if (typeof cast.from === "string" && cast.from) params.set("from", cast.from);
+      if (typeof cast.to === "string" && cast.to) params.set("to", cast.to);
+      if (typeof cast.assetClass === "string" && cast.assetClass) params.set("assetClass", cast.assetClass);
+      if (typeof cast.status === "string" && cast.status) params.set("status", cast.status);
+      if (typeof cast.page === "number" && Number.isFinite(cast.page)) params.set("page", String(cast.page));
+      if (typeof cast.limit === "number" && Number.isFinite(cast.limit)) params.set("limit", String(cast.limit));
+      const query = params.toString();
+      return query ? `/trading/v1/orders?${query}` : "/trading/v1/orders";
+    },
+    description: "Fetch account orders",
   },
   fetchPaymentInstructions: {
     method: "GET",
@@ -92,13 +107,26 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchPositions: {
     method: "GET",
+    path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/positions`,
+    description: "Fetch account positions",
+  },
+  fetchPositionsByParty: {
+    method: "GET",
     path: (partyId: unknown) => `/v2/financials/parties/${partyId}/positions`,
     description: "Fetch party positions",
   },
   fetchQuote: {
     method: "GET",
-    path: (symbol: unknown) => `/quotes?symbol=${symbol}`,
-    description: "Fetch instrument quote",
+    path: (symbol: unknown, options: unknown) => {
+      const params = new URLSearchParams();
+      const cast = (options ?? {}) as Record<string, unknown>;
+      if (typeof cast.assetClass === "string" && cast.assetClass) {
+        params.set("assetClass", cast.assetClass);
+      }
+      params.set("includeExtendedHours", cast.includeExtendedHours ? "true" : "false");
+      return `/v2/prices/${symbol}/snapshot?${params.toString()}`;
+    },
+    description: "Fetch instrument price snapshot",
   },
 };
 
@@ -184,9 +212,9 @@ export function createLoggedHarborProvider(inner: HarborProvider): HarborProvide
       );
     },
 
-    async fetchInstruments() {
+    async fetchInstruments(input?: FetchHarborInstrumentsInput) {
       await emitMockAuthEvent();
-      return loggedCall("fetchInstruments", [], () => inner.fetchInstruments());
+      return loggedCall("fetchInstruments", [input], () => inner.fetchInstruments(input));
     },
 
     async submitOrder(input: TradeOrderSubmitRequest) {
@@ -194,9 +222,9 @@ export function createLoggedHarborProvider(inner: HarborProvider): HarborProvide
       return loggedCall("submitOrder", [input], () => inner.submitOrder(input));
     },
 
-    async fetchOrders(partyId: string) {
+    async fetchOrders(input) {
       await emitMockAuthEvent();
-      return loggedCall("fetchOrders", [partyId], () => inner.fetchOrders(partyId));
+      return loggedCall("fetchOrders", [input], () => inner.fetchOrders(input));
     },
 
     async fetchPaymentInstructions() {
@@ -216,14 +244,19 @@ export function createLoggedHarborProvider(inner: HarborProvider): HarborProvide
       return loggedCall("submitDeposit", [input], () => inner.submitDeposit(input));
     },
 
-    async fetchPositions(partyId: string) {
+    async fetchPositions(accountId: string) {
       await emitMockAuthEvent();
-      return loggedCall("fetchPositions", [partyId], () => inner.fetchPositions(partyId));
+      return loggedCall("fetchPositions", [accountId], () => inner.fetchPositions(accountId));
     },
 
-    async fetchQuote(symbol: string) {
+    async fetchPositionsByParty(partyId: string) {
       await emitMockAuthEvent();
-      return loggedCall("fetchQuote", [symbol], () => inner.fetchQuote(symbol));
+      return loggedCall("fetchPositionsByParty", [partyId], () => inner.fetchPositionsByParty(partyId));
+    },
+
+    async fetchQuote(symbol: string, options?: FetchHarborQuoteOptions) {
+      await emitMockAuthEvent();
+      return loggedCall("fetchQuote", [symbol, options], () => inner.fetchQuote(symbol, options));
     },
   };
 }

@@ -29,9 +29,9 @@ export type DashboardAggregate = {
 
 export type DashboardResult = {
   aggregated: DashboardAggregate;
-  accounts: DashboardAccountSummary[];
+  accounts: DashboardAccountSnapshot[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;
@@ -41,7 +41,7 @@ export type DashboardResult = {
 export type DashboardAccountsResult = {
   accounts: DashboardAccountSnapshot[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;
@@ -52,7 +52,7 @@ export type LegacyBalancesResult = {
   aggregated: DashboardAggregate;
   accounts: DashboardAccountSnapshot[];
   meta: {
-    userId: string;
+    clientId: string;
     accountCount: number;
     provider: "harbor";
     generatedAt: string;

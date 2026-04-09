@@ -25,7 +25,6 @@ function parseSubmitOrderPayload(body: unknown): SubmitOrderInput {
   const payload = body as Record<string, unknown>;
 
   return {
-    userId: String(payload.userId ?? ""),
     instrumentSymbol: String(payload.instrumentSymbol ?? ""),
     assetClass: payload.assetClass as SubmitOrderInput["assetClass"],
     side: payload.side as SubmitOrderInput["side"],
@@ -35,23 +34,10 @@ function parseSubmitOrderPayload(body: unknown): SubmitOrderInput {
   };
 }
 
-function parseUserId(request: NextRequest) {
-  const userId = request.nextUrl.searchParams.get("userId") ?? request.headers.get("x-user-id") ?? "";
-  if (!userId) {
-    throw new OrdersServiceError(
-      "INVALID_ORDER_INPUT",
-      "Missing userId. Provide ?userId=<uuid> or x-user-id header.",
-      400,
-    );
-  }
-
-  return userId;
-}
-
 export async function GET(request: NextRequest) {
+  void request;
   try {
-    const userId = parseUserId(request);
-    const payload = await getOrders(userId);
+    const payload = await getOrders();
     return ok(payload);
   } catch (error: unknown) {
     if (error instanceof OrdersServiceError) {

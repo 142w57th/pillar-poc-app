@@ -3,11 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 
 import { InstrumentSearchBar } from "@/components/shared/instrument-search-bar";
 import { apiFetch } from "@/lib/api-client";
-import { ApiResponse, InstrumentsCatalogPayload } from "@/types/api";
+import { ApiResponse, InstrumentsCatalogPayload, OnboardingStatusPayload } from "@/types/api";
 
 type AppShellProps = {
   children: ReactNode;
@@ -16,12 +16,7 @@ type AppShellProps = {
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "Onboarding", href: "/onboarding" },
-  { label: "Portfolio", href: "/portfolio" },
   { label: "Transfer", href: "/transfer" },
-  { label: "Deposit", href: "/deposit" },
-  { label: "Withdraw", href: "/withdraw" },
-  { label: "Watchlist", href: "/watchlist" },
-  { label: "Buy", href: "/buy" },
   { label: "Settings", href: "/settings" },
 ];
 
@@ -30,27 +25,65 @@ export function AppShell({ children }: AppShellProps) {
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const shouldFetchInstruments = searchQuery.trim().length > 0;
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 350);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [searchQuery]);
+
+  const shouldFetchInstruments = debouncedSearchQuery.length > 0;
+  const isSearchDebouncing =
+    searchQuery.trim().length > 0 && searchQuery.trim() !== debouncedSearchQuery;
 
   const { data: instrumentsData, isLoading: isInstrumentsLoading } = useQuery({
-    queryKey: ["instruments-catalog"],
+    queryKey: ["instruments-catalog", debouncedSearchQuery],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<InstrumentsCatalogPayload>>("/api/v1/instruments");
+      const response = await apiFetch<ApiResponse<InstrumentsCatalogPayload>>(
+        `/api/v1/instruments?q=${encodeURIComponent(debouncedSearchQuery)}`,
+      );
       if (!response.success) {
         throw new Error(response.error.message);
       }
 
       return response.data;
     },
-    staleTime: 60_000,
     enabled: shouldFetchInstruments,
   });
+
+  const { data: onboardingStatus, isLoading: isOnboardingStatusLoading } = useQuery({
+    queryKey: ["onboarding-status"],
+    queryFn: async () => {
+      const response = await apiFetch<ApiResponse<OnboardingStatusPayload>>("/api/v1/onboarding/status");
+      if (!response.success) {
+        throw new Error(response.error.message);
+      }
+      return response.data;
+    },
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (isOnboardingStatusLoading || pathname.startsWith("/onboarding")) {
+      return;
+    }
+    const hasLinkedAccounts = (onboardingStatus?.accounts.length ?? 0) > 0;
+    if (!onboardingStatus?.clientOnboarded || !hasLinkedAccounts) {
+      router.replace("/onboarding");
+    }
+  }, [isOnboardingStatusLoading, onboardingStatus, pathname, router]);
 
   const instrumentSearchOptions = useMemo(
     () =>
       (instrumentsData?.instruments ?? []).map((instrument) => ({
         symbol: instrument.symbol,
         name: instrument.name,
+        assetClass: instrument.assetClass,
       })),
     [instrumentsData],
   );
@@ -103,10 +136,14 @@ export function AppShell({ children }: AppShellProps) {
               query={searchQuery}
               onQueryChange={setSearchQuery}
               onInstrumentSelect={(instrument) => {
-                setSearchQuery(instrument.symbol);
-                router.push(`/instruments/${encodeURIComponent(instrument.symbol)}`);
+                setSearchQuery("");
+                setDebouncedSearchQuery("");
+                const assetClassQuery = instrument.assetClass
+                  ? `?assetClass=${encodeURIComponent(instrument.assetClass)}`
+                  : "";
+                router.push(`/instruments/${encodeURIComponent(instrument.symbol)}${assetClassQuery}`);
               }}
-              isLoading={isInstrumentsLoading}
+              isLoading={isSearchDebouncing || isInstrumentsLoading}
             />
 
             <button

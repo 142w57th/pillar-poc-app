@@ -1,10 +1,8 @@
 import type { HarborCreateAccountInput, HarborCreateAccountResult } from "@/server/integrations/harbor/accounts";
 
 const SUPPORTED_TEMPLATES = new Set([
-  "EVENT_CONTRACTS_STANDARD",
   "DIGITAL_ASSETS_STANDARD",
   "RETAIL_SELF_DIRECTED_STANDARD",
-  "ADVISOR_MANAGED_TRUST_STANDARD",
 ]);
 
 function assertRequired(value: string | undefined, field: string) {
