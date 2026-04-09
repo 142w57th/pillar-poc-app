@@ -1,20 +1,29 @@
 # Trading POC App
 
-Mobile-first Next.js scaffold for a trading web app.
+Mobile-first trading app built with Next.js App Router, Tailwind v4, and React Query.
+
+## Current Product Flow
+
+- App enforces onboarding before non-onboarding routes.
+- Onboarding journey: `Account Type` -> `Personal Info` -> `Suitability`.
+- Dashboard shows portfolio summary, holdings, and recent orders.
+- Global instrument search routes to instrument details.
+- Instrument details page fetches live quote + position context and links to Buy/Sell flows.
+- Transfer flow includes Deposit and Withdraw journeys, plus payment account linking.
 
 ## Stack
 
 - Next.js (App Router, TypeScript)
 - Tailwind CSS
 - TanStack React Query
-- Next.js Route Handlers for backend APIs
-
-Note: this project uses Tailwind CSS v4 syntax (`@import "tailwindcss";`) in `src/app/globals.css`.
+- Route Handlers under `src/app/api` for backend APIs
+- `Keyv` in-memory runtime storage
 
 ## Getting Started
 
 ```bash
 npm install
+cp src/server/.env.sample src/server/.env
 npm run dev
 ```
 
@@ -27,18 +36,6 @@ Open http://localhost:3000.
 - `npm run start` - start production server
 - `npm run lint` - run ESLint
 - `npm run typecheck` - run TypeScript checks
-- `npm run storage:seed` - seed local client-account mappings into in-memory storage
-
-## API Endpoints
-
-- `GET /api/health`
-- `GET /api/v1/status`
-- `GET /api/v1/balances?userId=<uuid>`
-- `GET /api/v1/dashboard?userId=<uuid>`
-- `GET /api/v1/instruments`
-- `GET /api/v1/positions?userId=<uuid>`
-- `GET /api/v1/quotes?symbol=<symbol>`
-- `POST /api/v1/orders`
 
 ## Environment
 
@@ -53,15 +50,26 @@ Copy `.env.example` to `.env` and adjust values as needed:
 - `HARBOR_AUTH_URL`
 - `HARBOR_CLIENT_ID`
 - `HARBOR_CLIENT_SECRET`
-- `HARBOR_BALANCES_PATH` (optional, defaults to `/v2/financials/accounts/{accountId}/balances`)
-- `HARBOR_INSTRUMENTS_PATH` (optional, defaults to `/instruments`)
-- `HARBOR_ORDERS_PATH` (optional, defaults to `/trading/v1/orders`)
-- `HARBOR_POSITIONS_PATH` (optional, defaults to `/positions`)
-- `HARBOR_QUOTES_PATH` (optional, defaults to `/quotes`)
-- `HARBOR_AUTH_SCOPE` (optional)
+- `HARBOR_PARTIES_PATH`
+- `HARBOR_ACCOUNTS_PATH`
+- `HARBOR_ACCOUNT_TEMPLATES_PATH`
+- `HARBOR_BALANCES_PATH`
+- `HARBOR_PARTY_BALANCES_PATH`
+- `HARBOR_INSTRUMENTS_PATH`
+- `HARBOR_ORDERS_PATH`
+- `HARBOR_PARTY_ORDERS_PATH`
+- `HARBOR_POSITIONS_PATH`
+- `HARBOR_PARTY_POISITIONS_PATH` (legacy typo key still supported)
+- `HARBOR_PARTY_POSITIONS_PATH`
+- `HARBOR_QUOTES_PATH`
+- `HARBOR_PRICE_SNAPSHOT_API`
+- `HARBOR_PAYMENT_INSTRUCTIONS_PATH`
+- `HARBOR_PAYMENT_ACCOUNTS_PATH`
+- `HARBOR_DEPOSITS_PATH`
+- `HARBOR_AUTH_SCOPE`
 - `HARBOR_REQUEST_TIMEOUT_MS`
 
-### Harbor Provider Mode
+Notes:
 
 Harbor is the single backend provider for all data domains (balances, instruments, orders).
 
@@ -73,34 +81,75 @@ Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`. Submi
 
 Runtime storage uses `Keyv` with the default in-memory backend and reads environment variables from `src/server/.env`.
 
+## API Endpoints
+
+Health + status:
+
+- `GET /api/health`
+- `GET /api/v1/status`
+
+Dashboard + portfolio:
+
+- `GET /api/v1/dashboard`
+- `GET /api/v1/dashboard/accounts`
+- `GET /api/v1/balances?scope=account|party&assetClass=<optional>`
+- `GET /api/v1/positions?scope=account|party&symbol=<optional>&assetClass=<optional>`
+
+Instruments + market data:
+
+- `GET /api/v1/instruments?q=<optional>&limit=<optional>&assetClass=<optional>&instrumentType=<optional>&exchange=<optional>&status=<optional>`
+- `GET /api/v1/quotes?symbol=<required>&assetClass=<optional>&includeExtendedHours=<optional>`
+
+Orders:
+
+- `GET /api/v1/orders`
+- `POST /api/v1/orders`
+
+Onboarding:
+
+- `GET /api/v1/onboarding/status`
+- `GET /api/v1/onboarding/account-templates`
+- `POST /api/v1/onboarding/accounts`
+
+Payments:
+
+- `GET /api/v1/payments/payment-instructions`
+- `GET /api/v1/payments/payment-accounts`
+- `POST /api/v1/payments/payment-accounts`
+- `GET /api/v1/payments/destination-accounts`
+- `POST /api/v1/payments/deposits`
+
+Debug stream:
+
+- `GET /api/v1/api-log/stream?clear=1` (optional clear-on-connect)
+- `DELETE /api/v1/api-log/stream`
 ## Project Structure
 
 ```text
 src/
   app/
     api/
-      health/route.ts
-      v1/status/route.ts
-    globals.css
-    layout.tsx
-    onboarding/page.tsx
+    onboarding/
+    buy/
+    sell/
+    deposit/
+    withdraw/
+    instruments/[symbol]/
+    transfer/
+    settings/
     page.tsx
   components/
     shared/
-  features/
   lib/
     api-client.ts
+    account-asset-class.ts
     providers.tsx
     query-client.ts
   server/
     features/
-      dashboard/
+    integrations/harbor/
     storage/
-      kv-store.ts
-      seed.ts
-    integrations/
-      harbor/
-    http/response.ts
+    http/
   types/
     api.ts
 ```

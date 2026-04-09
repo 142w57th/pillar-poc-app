@@ -85,16 +85,23 @@ function formatCryptoUnits(value: number) {
 }
 
 function toCryptoPairLabel(symbol: string) {
-  if (symbol.includes("/")) {
-    return symbol;
+  const normalizedSymbol = symbol.trim().toUpperCase();
+
+  if (normalizedSymbol.includes("/")) {
+    return normalizedSymbol;
   }
 
-  if (symbol.endsWith("USD") && symbol.length > 3) {
-    const base = symbol.slice(0, -3);
+  const delimitedUsdMatch = normalizedSymbol.match(/^([A-Z0-9]+)[-_]USD$/);
+  if (delimitedUsdMatch?.[1]) {
+    return `${delimitedUsdMatch[1]}/USD`;
+  }
+
+  if (normalizedSymbol.endsWith("USD") && normalizedSymbol.length > 3) {
+    const base = normalizedSymbol.slice(0, -3).replace(/[-_]+$/g, "");
     return `${base}/USD`;
   }
 
-  return symbol;
+  return normalizedSymbol;
 }
 
 function toCryptoBaseAsset(symbol: string) {
@@ -139,7 +146,7 @@ function BuyPageContent() {
       const response = await apiFetch<ApiResponse<QuotePayload>>(
         `/api/v1/quotes?symbol=${encodeURIComponent(selectedInstrument!.symbol)}&assetClass=${encodeURIComponent(
           toQuoteAssetClassParam(selectedInstrument?.assetClass),
-        )}&includeExtendedHours=true`,
+        )}`,
       );
       if (!response.success) {
         throw new Error(response.error.message);

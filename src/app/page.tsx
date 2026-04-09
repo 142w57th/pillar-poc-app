@@ -608,58 +608,55 @@ export default function Home() {
             ) : (
               <div className="border-app bg-surface-1 mt-3 rounded-xl border">
                 {filteredHoldings.length > 0 ? (
-                filteredHoldings.map(({ holding, presentation }, index) => (
-                  <article
-                    key={`${holding.symbol}-${holding.assetClass}`}
-                    className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
+                  filteredHoldings.map(({ holding, presentation }, index) => (
+                    <article
+                      key={`${holding.symbol}-${holding.assetClass}`}
+                      className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
                       index !== filteredHoldings.length - 1 ? "border-app-soft border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/instruments/${encodeURIComponent(holding.symbol)}`}
-                          className="text-app-primary text-sm font-semibold leading-none hover:underline"
-                        >
-                          {presentation.title}
-                        </Link>
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
-                            holding.assetClass,
-                          )}`}
-                        >
-                          {getAssetClassChipLabel(holding.assetClass)}
-                        </span>
-                      </div>
-                      <p className="text-app-secondary mt-1.5 text-sm">
-                        {presentation.leftPrimaryText}{" "}
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/instruments/${encodeURIComponent(holding.symbol)}`}
+                            className="text-app-primary text-sm font-semibold leading-none hover:underline"
+                          >
+                            {presentation.title}
+                          </Link>
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
+                              holding.assetClass,
+                            )}`}
+                          >
+                            {getAssetClassChipLabel(holding.assetClass)}
+                          </span>
+                        </div>
+                        <p className="text-app-secondary mt-1.5 text-sm">
+                          {presentation.leftPrimaryText}{" "}
                         <span className={presentation.dayChangePercent < 0 ? "text-negative" : "text-positive"}>
                           ({presentation.moveWindowLabel}: {formatSignedPercent(presentation.dayChangePercent)})
-                        </span>
-                      </p>
-                      {presentation.leftSecondaryText ? (
+                          </span>
+                        </p>
+                        {presentation.leftSecondaryText ? (
                         <p className="text-app-muted mt-1 text-xs">{presentation.leftSecondaryText}</p>
-                      ) : null}
-                    </div>
+                        ) : null}
+                      </div>
 
-                    <div className="shrink-0 text-right">
+                      <div className="shrink-0 text-right">
                       <p className="text-app-primary text-sm font-semibold">{formatCurrency(holding.marketValue)}</p>
-                      <p className="text-app-muted mt-1.5 text-xs">
-                        {presentation.performanceLabel}:{" "}
+                        <p className="text-app-muted mt-1.5 text-xs">
+                          {presentation.performanceLabel}:{" "}
                         <span className={holding.pnlPercent < 0 ? "text-negative" : "text-positive"}>
-                          {formatSignedPercent(holding.pnlPercent)}
-                        </span>
-                      </p>
-                    </div>
-                  </article>
-                ))
+                            {formatSignedPercent(holding.pnlPercent)}
+                          </span>
+                        </p>
+                      </div>
+                    </article>
+                  ))
                 ) : (
                   <div className="px-4 py-8 text-center @md:px-5">
-                    <p className="text-app-primary text-sm font-medium">No holdings match this filter.</p>
-                    <p className="text-app-secondary mt-1 text-sm">
-                      {hasOpenedAccounts
-                        ? "Choose at least one asset class to continue."
-                        : "Open an account to start building holdings."}
+                    <p className="text-app-primary text-sm font-medium">
+                      No holdings match this filter.
                     </p>
                   </div>
                 )}
@@ -703,40 +700,40 @@ export default function Home() {
             ) : (
               <div className="border-app bg-surface-1 mt-3 rounded-xl border">
                 {recentOrders.length > 0 ? (
-                recentOrders.map((order, index) => (
-                  <article
-                    key={`${order.orderId}-${order.submittedAt}`}
-                    className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
+                  recentOrders.map((order, index) => (
+                    <article
+                      key={`${order.orderId}-${order.submittedAt}`}
+                      className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
                       index !== recentOrders.length - 1 ? "border-app-soft border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
                         <p className="text-app-primary text-sm font-semibold">{order.instrumentSymbol}</p>
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
-                            order.assetClass,
-                          )}`}
-                        >
-                          {getAssetClassChipLabel(order.assetClass)}
-                        </span>
-                      </div>
-                      <p className="text-app-secondary mt-1.5 text-sm">
-                        {order.side}
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
+                              order.assetClass,
+                            )}`}
+                          >
+                            {getAssetClassChipLabel(order.assetClass)}
+                          </span>
+                        </div>
+                        <p className="text-app-secondary mt-1.5 text-sm">
+                          {order.side}
                         {order.eventSide ? ` ${order.eventSide}` : ""} • {formatCurrency(order.amountUsd)} @{" "}
-                        {formatCurrency(order.pricePerUnit)}
-                      </p>
+                          {formatCurrency(order.pricePerUnit)}
+                        </p>
                       <p className="text-app-muted mt-1 text-xs">{formatDateTime(order.submittedAt)}</p>
-                    </div>
+                      </div>
 
-                    <div className="shrink-0 text-right">
+                      <div className="shrink-0 text-right">
                       <p className={`text-xs font-semibold uppercase tracking-[0.08em] ${getOrderStatusClassName(order.status)}`}>
-                        {order.status}
-                      </p>
+                          {order.status}
+                        </p>
                       <p className="text-app-muted mt-1.5 text-xs">#{order.orderId.slice(-6)}</p>
-                    </div>
-                  </article>
-                ))
+                      </div>
+                    </article>
+                  ))
                 ) : (
                   <div className="px-4 py-8 text-center @md:px-5">
                     <p className="text-app-primary text-sm font-medium">No orders yet.</p>
