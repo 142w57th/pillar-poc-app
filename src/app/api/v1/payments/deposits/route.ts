@@ -26,11 +26,12 @@ function parseSubmitDepositPayload(body: unknown): SubmitDepositInput {
   }
 
   const payload = body as Record<string, unknown>;
+  const sourcePaymentAccountIdRaw =
+    payload.sourcePaymentAccountId !== undefined ? payload.sourcePaymentAccountId : payload.sourceInstructionId;
 
   return {
-    userId: String(payload.userId ?? ""),
-    sourceInstructionId:
-      payload.sourceInstructionId !== undefined ? String(payload.sourceInstructionId) : undefined,
+    direction: payload.direction !== undefined ? String(payload.direction).toUpperCase() as "DEPOSIT" | "WITHDRAW" : undefined,
+    sourcePaymentAccountId: sourcePaymentAccountIdRaw !== undefined ? String(sourcePaymentAccountIdRaw) : undefined,
     destinationAccountId: String(payload.destinationAccountId ?? ""),
     amountUsd: toNumber(payload.amountUsd),
   };

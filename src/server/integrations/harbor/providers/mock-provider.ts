@@ -13,10 +13,12 @@ import type {
   HarborPartyBalanceResponse,
 } from "@/server/integrations/harbor/balances";
 import type {
+  FetchHarborInstrumentsInput,
   InstrumentRecord,
   InstrumentsCatalogMeta,
   InstrumentsCatalogResponse,
 } from "@/server/integrations/harbor/instruments";
+import type { FetchHarborQuoteOptions } from "@/server/integrations/harbor/quotes";
 import type {
   HarborOrderSnapshot,
   HarborOrdersResponse,
@@ -64,7 +66,7 @@ const BALANCES_FIXTURE = mockBalances as HarborBalanceFixture;
 const INSTRUMENTS_FIXTURE = instrumentsFixture as InstrumentsFixture;
 const ORDERS_FIXTURE = ordersFixture as OrdersFixture;
 const POSITIONS_FIXTURE = positionsFixture as PositionsFixture;
-const QUOTES_FIXTURE = quotesFixture as QuotesFixture;
+const QUOTES_FIXTURE = quotesFixture as unknown as QuotesFixture;
 const PAYMENT_INSTRUCTIONS_FIXTURE: HarborPaymentInstructionsResponse = {
   accounts: [
     {
@@ -121,7 +123,6 @@ const PAYMENT_ACCOUNTS_FIXTURE: HarborPaymentAccountsResponse = {
 const ACCOUNT_TEMPLATES_FIXTURE: HarborAccountTemplatesResponse = {
   data: {
     accountTemplates: [
-      { accountTemplateCode: "EVENT_CONTRACTS_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
       { accountTemplateCode: "DIGITAL_ASSETS_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
       { accountTemplateCode: "RETAIL_SELF_DIRECTED_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
     ],
@@ -174,15 +175,42 @@ function getPartyBalanceFromFixture(partyId: string): HarborPartyBalanceResponse
 
   return {
     data: {
-      partyId,
-      totalMarketValue: sums.totalMarketValue.toFixed(2),
-      totalCostBasis: sums.totalCostBasis.toFixed(2),
-      cashBalance: sums.cashBalance.toFixed(2),
-      buyingPower: sums.buyingPower.toFixed(2),
-      currency,
-      cashAvailableForWithdrawal: sums.cashAvailableForWithdrawal.toFixed(2),
-      accountValue: sums.accountValue.toFixed(2),
-      calculatedAt,
+      accounts: balances.map((balance, index) => ({
+        accountNumber: `1000${String(index + 1000).slice(-4)}`,
+        accountProviderId: "BETA",
+        currency: balance.currency || "USD",
+        updatedOn: balance.calculatedAt || calculatedAt,
+        fundsAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        freeCreditBalance: 0,
+        cashBalances: {
+          cashBalance: Number(balance.cashBalance || 0),
+          cashAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        },
+        marginBalances: {
+          marginBalance: 0,
+          buyingPower: Number(balance.buyingPower || 0),
+          cashAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        },
+        sweepBalances: {
+          sweepBalance: 0,
+        },
+        otherBalances: {
+          fedCallBalance: 0,
+          houseCallBalance: 0,
+          specialMiscellaneousBalances: 0,
+        },
+      })),
+      party: {
+        partyId,
+        totalMarketValue: sums.totalMarketValue.toFixed(2),
+        totalCostBasis: sums.totalCostBasis.toFixed(2),
+        cashBalance: sums.cashBalance.toFixed(2),
+        buyingPower: sums.buyingPower.toFixed(2),
+        currency,
+        cashAvailableForWithdrawal: sums.cashAvailableForWithdrawal.toFixed(2),
+        accountValue: sums.accountValue.toFixed(2),
+        calculatedAt,
+      },
     },
     meta: BALANCES_FIXTURE.meta,
   };
@@ -194,6 +222,7 @@ function round(value: number, digits = 4) {
 }
 
 function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): HarborCreatePaymentAccountResponse {
+  const bankName = input.bankName?.trim() || "Linked bank";
   return {
     data: {
       paymentAccountId: `pa-mock-${crypto.randomUUID()}`,
@@ -201,7 +230,7 @@ function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): Harbo
       currency: "USD" as const,
       country: "USA" as const,
       maskedIdentifier: "****1234" as const,
-      nickname: input.bankName,
+      nickname: bankName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       externalId: `mock-${Date.now()}` as const,
@@ -210,11 +239,7 @@ function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): Harbo
       },
       details: {
         type: "BANK_ACCOUNT" as const,
-        accountType: input.accountType,
-        bankName: input.bankName ,
-        bankAddress: input.bankAddress ,
-        bankIdentifierType: "ABA_ROUTING",
-        bankIdentifier: input.bankIdentifier ,
+        bankName,
       },
     },
     meta: {
@@ -251,10 +276,22 @@ export function createMockHarborProvider(): HarborProvider {
       return Promise.resolve(getPartyBalanceFromFixture(partyId));
     },
 
-    fetchInstruments() {
+    fetchInstruments(input?: FetchHarborInstrumentsInput) {
+      void input;
+      const instruments = INSTRUMENTS_FIXTURE.instruments
+        .filter((item) => item.assetClass === "Equity" || item.assetClass === "Crypto")
+        .map((item) => ({
+          ...item,
+          assetClass: item.assetClass.toUpperCase(),
+          feedSymbol: item.assetClass === "Crypto" ? item.symbol.replace("/", "-") : item.symbol,
+        }));
+
       return Promise.resolve({
-        instruments: INSTRUMENTS_FIXTURE.instruments,
-        meta: INSTRUMENTS_FIXTURE.meta,
+        instruments,
+        meta: {
+          ...INSTRUMENTS_FIXTURE.meta,
+          source: "mock-universe:streaming-demo",
+        },
       } satisfies InstrumentsCatalogResponse);
     },
 
@@ -264,18 +301,17 @@ export function createMockHarborProvider(): HarborProvider {
       return Promise.resolve({
         provider: "mock" as const,
         orderId: `mock-${crypto.randomUUID()}`,
-        status: "pending" as const,
+        status: "PENDING" as const,
         submittedAt: new Date().toISOString(),
         providerReference: "mock-order-engine",
         estimatedUnits: round(estimatedUnits),
-        estimatedMaxReturnUsd:
-          input.assetClass === "Event Contract" ? round(estimatedUnits * 1, 2) : undefined,
       });
     },
 
-    fetchOrders() {
+    fetchOrders(input) {
+      const filteredOrders = ORDERS_FIXTURE.orders.filter((order) => order.accountId === input.accountId);
       return Promise.resolve({
-        orders: ORDERS_FIXTURE.orders,
+        orders: filteredOrders,
         meta: {
           ...ORDERS_FIXTURE.meta,
           generatedAt: new Date().toISOString(),
@@ -312,14 +348,24 @@ export function createMockHarborProvider(): HarborProvider {
       });
     },
 
-    fetchPositions() {
+    fetchPositions(accountId: string) {
+      void accountId;
       return Promise.resolve({
         positions: POSITIONS_FIXTURE.positions,
         meta: POSITIONS_FIXTURE.meta,
       } satisfies PositionsResponse);
     },
 
-    fetchQuote(symbol: string) {
+    fetchPositionsByParty(partyId: string) {
+      void partyId;
+      return Promise.resolve({
+        positions: POSITIONS_FIXTURE.positions,
+        meta: POSITIONS_FIXTURE.meta,
+      } satisfies PositionsResponse);
+    },
+
+    fetchQuote(symbol: string, options?: FetchHarborQuoteOptions) {
+      void options;
       const normalizedSymbol = symbol.toUpperCase();
       const quote = QUOTES_FIXTURE.quotes[normalizedSymbol];
 
@@ -328,7 +374,22 @@ export function createMockHarborProvider(): HarborProvider {
       }
 
       return Promise.resolve({
-        quote,
+        quote: {
+          ...quote,
+          change: (quote.price * quote.dayChangePercent) / 100,
+          open: quote.price * 0.995,
+          high: quote.price * 1.01,
+          low: quote.price * 0.99,
+          close: quote.price * 0.997,
+          previousClose: quote.price / (1 + quote.dayChangePercent / 100),
+          volume: 1_250_000,
+          vwap: quote.price * 0.998,
+          tradingDay: new Date().toISOString().slice(0, 10),
+          marketSession: "OPEN" as const,
+          afterHoursPrice: null,
+          preMarketPrice: null,
+          updatedAt: new Date().toISOString(),
+        },
         meta: QUOTES_FIXTURE.meta,
       } satisfies QuoteResponse);
     },

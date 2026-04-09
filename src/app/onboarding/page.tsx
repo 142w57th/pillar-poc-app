@@ -13,8 +13,6 @@ import type {
   OnboardingStatusPayload,
 } from "@/types/api";
 
-const DEMO_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
-
 type AccountTypeOption = {
   id: string;
   title: string;
@@ -24,12 +22,6 @@ type AccountTypeOption = {
 };
 
 const ACCOUNT_TEMPLATE_UI_META: Record<string, Omit<AccountTypeOption, "id">> = {
-  EVENT_CONTRACTS_STANDARD: {
-    title: "I want to predict the future",
-    description: "Trade event contracts on real-world outcomes with limited risk.",
-    accountType: "Event Contract",
-    emoji: "🔮",
-  },
   RETAIL_SELF_DIRECTED_STANDARD: {
     title: "I want to invest in stocks",
     description: "Build a portfolio of stocks and ETFs with no commissions.",
@@ -191,11 +183,9 @@ export default function OnboardingPage() {
   const [stepIndex, setStepIndex] = useState(0);
 
   const { data: onboardingStatus, isLoading: isStatusLoading } = useQuery({
-    queryKey: ["onboarding-status", DEMO_USER_ID],
+    queryKey: ["onboarding-status"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<OnboardingStatusPayload>>(
-        `/api/v1/onboarding/status?userId=${encodeURIComponent(DEMO_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<OnboardingStatusPayload>>("/api/v1/onboarding/status");
       if (!response.success) throw new Error(response.error.message);
       return response.data;
     },
@@ -255,6 +245,11 @@ export default function OnboardingPage() {
     () => accountTypeOptions.length > 0 && accountTypeOptions.every((opt) => opt && openedAccountTypes.has(opt.id)),
     [accountTypeOptions, openedAccountTypes],
   );
+  const noSelectableAccountTypeOptions = useMemo(() => {
+    const availableOptions = accountTypeOptions.filter((opt): opt is AccountTypeOption => Boolean(opt));
+    if (availableOptions.length === 0) return false;
+    return availableOptions.every((opt) => !canSelectAccount(opt.id));
+  }, [accountTypeOptions, canSelectAccount]);
 
   const createAccountMutation = useMutation({
     mutationFn: async (payload: CreateAccountRequestPayload) => {
@@ -334,7 +329,6 @@ export default function OnboardingPage() {
     if (!selectedAccountType) return;
 
     const payload: CreateAccountRequestPayload = {
-      userId: DEMO_USER_ID,
       accountType: selectedAccountType,
       suitability: {
         employmentType: suitability.employmentType,
@@ -403,6 +397,7 @@ export default function OnboardingPage() {
       : currentStepKey === "personalInfo"
         ? canContinueFromPersonalInfo
         : canSubmitSuitability;
+  const showAccountTypeDashboardCta = currentStepKey === "accountType" && noSelectableAccountTypeOptions;
 
   if (isStatusLoading || isTemplatesLoading) {
     return (
@@ -939,48 +934,60 @@ export default function OnboardingPage() {
             </p>
           )}
 
-          <div className="flex flex-col-reverse gap-3 @md:flex-row @md:justify-between">
-            <button
-              type="button"
-              onClick={goBack}
-              disabled={clampedStepIndex === 0}
-              className={`rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${
-                clampedStepIndex === 0
-                  ? "border-app bg-surface-2 text-app-muted cursor-not-allowed opacity-70"
-                  : "border-app bg-surface-2 text-app-primary hover:opacity-90"
-              }`}
-            >
-              Back
-            </button>
+          {showAccountTypeDashboardCta ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="bg-app-accent text-app-accent-contrast rounded-xl px-5 py-2.5 text-sm font-semibold transition hover:opacity-90"
+              >
+                Go to Dashboard
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col-reverse gap-3 @md:flex-row @md:justify-between">
+              <button
+                type="button"
+                onClick={goBack}
+                disabled={clampedStepIndex === 0}
+                className={`rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${
+                  clampedStepIndex === 0
+                    ? "border-app bg-surface-2 text-app-muted cursor-not-allowed opacity-70"
+                    : "border-app bg-surface-2 text-app-primary hover:opacity-90"
+                }`}
+              >
+                Back
+              </button>
 
-            {isLastStep ? (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!canContinue || createAccountMutation.isPending}
-                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
-                  !canContinue || createAccountMutation.isPending
-                    ? "border-app bg-surface-2 text-app-muted border cursor-not-allowed"
-                    : "bg-app-accent text-app-accent-contrast hover:opacity-90"
-                }`}
-              >
-                {createAccountMutation.isPending ? "Submitting..." : "Submit & Verify"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={!canContinue}
-                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
-                  !canContinue
-                    ? "border-app bg-surface-2 text-app-muted border cursor-not-allowed"
-                    : "bg-app-accent text-app-accent-contrast hover:opacity-90"
-                }`}
-              >
-                Continue
-              </button>
-            )}
-          </div>
+              {isLastStep ? (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!canContinue || createAccountMutation.isPending}
+                  className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
+                    !canContinue || createAccountMutation.isPending
+                      ? "border-app bg-surface-2 text-app-muted border cursor-not-allowed"
+                      : "bg-app-accent text-app-accent-contrast hover:opacity-90"
+                  }`}
+                >
+                  {createAccountMutation.isPending ? "Submitting..." : "Submit & Verify"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={!canContinue}
+                  className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
+                    !canContinue
+                      ? "border-app bg-surface-2 text-app-muted border cursor-not-allowed"
+                      : "bg-app-accent text-app-accent-contrast hover:opacity-90"
+                  }`}
+                >
+                  Continue
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>

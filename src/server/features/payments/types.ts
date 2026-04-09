@@ -56,15 +56,15 @@ export type PaymentAccountsResult = {
 export type DestinationAccountsResult = {
   accounts: PaymentsDestinationAccount[];
   meta: {
-    userId: string;
+    clientId: string;
     count: number;
     source: "kv-store";
   };
 };
 
 export type SubmitDepositInput = {
-  userId: string;
-  sourceInstructionId?: string;
+  direction?: "DEPOSIT" | "WITHDRAW";
+  sourcePaymentAccountId?: string;
   destinationAccountId: string;
   amountUsd: number;
 };
@@ -85,13 +85,7 @@ export type GetPaymentAccountsInput = {
       metadata?: Record<string, unknown>;
       details: {
         type: "BANK_ACCOUNT";
-        accountHolderName: string;
-        accountNumber: string;
-        accountType: "CHECKING" | "SAVINGS";
-        bankName: string;
-        bankAddress: string;
-        bankIdentifierType: "ABA_ROUTING" | "IFSC" | "IBAN";
-        bankIdentifier: string;
+      bankName?: string;
       };
     };
   };

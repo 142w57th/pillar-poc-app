@@ -22,7 +22,6 @@ export type OnboardingAccountTemplatesResult = {
 };
 
 export type CreateAccountRequest = {
-  userId: string;
   accountType: string;
   personalInfo?: {
     firstName: string;

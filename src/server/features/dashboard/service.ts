@@ -1,19 +1,23 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
-import { getPartyIdByUserId, listLinkedBrokerAccountByUserId } from "@/server/features/dashboard/repository";
-import { getCurrentClient } from "@/server/storage/keyv-store";
+import { getCurrentPartyId, listLinkedBrokerAccounts } from "@/server/features/dashboard/repository";
 import {
   DashboardAccountSnapshot,
   DashboardAccountsResult,
   DashboardResult,
   LegacyBalancesResult,
 } from "@/server/features/dashboard/types";
+import { toCanonicalAssetClassCode } from "@/lib/account-asset-class";
 
 type DashboardErrorCode =
   | "NO_LINKED_ACCOUNTS"
-  | "INVALID_ACCOUNT_TYPE"
   | "HARBOR_AUTH_FAILED"
   | "HARBOR_BALANCES_FETCH_FAILED"
   | "SERVER_CONFIG_ERROR";
+
+type GetBalancesFilters = {
+  assetClass?: string;
+  scope?: "party" | "account";
+};
 
 export class DashboardServiceError extends Error {
   code: DashboardErrorCode;
@@ -34,6 +38,16 @@ function parseMoney(value: string) {
   }
 
   return parsed;
+}
+
+function parseNumericValue(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "string") {
+    return parseMoney(value);
+  }
+  return 0;
 }
 
 function latestDate(values: string[]) {
@@ -74,10 +88,6 @@ function buildAggregate(accounts: DashboardAccountSnapshot[]) {
       calculatedAt,
     },
   );
-}
-
-function normalizeAccountType(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 function toAccountSnapshot(
@@ -129,61 +139,104 @@ function toDashboardServiceError(error: unknown): DashboardServiceError {
   return new DashboardServiceError("HARBOR_BALANCES_FETCH_FAILED", message, 502);
 }
 
-async function resolveCurrentClientOrThrow() {
-  const client = await getCurrentClient();
-  if (!client) {
-    throw new DashboardServiceError("SERVER_CONFIG_ERROR", "No onboarded client found in keyv store.", 404);
-  }
+function normalizeAssetClass(value: string | undefined) {
+  return value?.trim().toUpperCase();
+}
 
-  return client;
+function accountTypeMatchesAssetClass(accountType: string, assetClass: string | undefined) {
+  if (!assetClass) return true;
+  const normalizedType = toCanonicalAssetClassCode(accountType);
+  const normalizedAssetClass = toCanonicalAssetClassCode(assetClass);
+  if (normalizedAssetClass) {
+    return normalizedType === normalizedAssetClass;
+  }
+  if (assetClass === "OPTION" || assetClass === "EVENT_CONTRACT") return false;
+  return true;
 }
 
 async function getLinkedAccountsOrThrow() {
-  const client = await resolveCurrentClientOrThrow();
   const harborProvider = getHarborProvider();
-  const linkedAccount = await listLinkedBrokerAccountByUserId(client.userId);
-
+  const partyId = await getCurrentPartyId();
+  const linkedAccount = await listLinkedBrokerAccounts();
   if (linkedAccount.length === 0) {
     throw new DashboardServiceError(
       "NO_LINKED_ACCOUNTS",
-      `No linked broker account record found for client ${client.id}. Ensure key-value mappings are seeded first.`,
+      "No linked broker account found. Complete onboarding first.",
       404,
     );
   }
-
-  return { client, harborProvider, linkedAccount };
+  if (!partyId) {
+    throw new DashboardServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
+  }
+  return { harborProvider, linkedAccount, partyId };
 }
 
 export async function getDashboardSnapshot(): Promise<DashboardResult> {
-  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
+  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow();
 
   try {
-    const partyId = await getPartyIdByUserId(client.userId);
-    if (!partyId) {
-      throw new DashboardServiceError("SERVER_CONFIG_ERROR", `No party id found for client ${client.id}.`, 500);
+    const partyResponse = await harborProvider.fetchBalanceByPartyId(partyId);
+    const partySummary = partyResponse.data.party;
+    const calculatedAt = latestDate([partySummary.calculatedAt]);
+    const fallbackCalculatedAt = calculatedAt ?? new Date().toISOString();
+    const rawAccounts = Array.isArray(partyResponse.data.accounts) ? partyResponse.data.accounts : [];
+    const partyAccountsById = new Map<string, Record<string, unknown>>();
+    for (const account of rawAccounts) {
+      if (!account || typeof account !== "object") continue;
+      const candidate = account as Record<string, unknown>;
+      const accountId = typeof candidate.accountId === "string" ? candidate.accountId : "";
+      if (!accountId) continue;
+      partyAccountsById.set(accountId, candidate);
     }
 
-    const response = await harborProvider.fetchBalanceByPartyId(partyId);
-    const calculatedAt = latestDate([response.data.calculatedAt]);
-    const accounts = linkedAccount.map((item) => ({
-      accountType: item.accountType,
-      accountId: item.externalAccountId,
-    }));
+    const accounts = linkedAccount.map((linked) => {
+      const matched = partyAccountsById.get(linked.externalAccountId);
+      if (!matched) {
+        return {
+          accountType: linked.accountType,
+          accountId: linked.externalAccountId,
+          totalMarketValue: 0,
+          totalCostBasis: 0,
+          cashBalance: 0,
+          buyingPower: 0,
+          cashAvailableForWithdrawal: 0,
+          accountValue: 0,
+          currency: partySummary.currency || "USD",
+          calculatedAt: fallbackCalculatedAt,
+        } satisfies DashboardAccountSnapshot;
+      }
+
+      return {
+        accountType: linked.accountType,
+        accountId: linked.externalAccountId,
+        totalMarketValue: parseNumericValue(matched.totalMarketValue),
+        totalCostBasis: parseNumericValue(matched.totalCostBasis),
+        cashBalance: parseNumericValue(matched.cashBalance),
+        buyingPower: parseNumericValue(matched.buyingPower),
+        cashAvailableForWithdrawal: parseNumericValue(matched.cashAvailableForWithdrawal),
+        accountValue: parseNumericValue(matched.accountValue),
+        currency: typeof matched.currency === "string" ? matched.currency : partySummary.currency || "USD",
+        calculatedAt:
+          typeof matched.calculatedAt === "string" && matched.calculatedAt
+            ? matched.calculatedAt
+            : fallbackCalculatedAt,
+      } satisfies DashboardAccountSnapshot;
+    });
 
     return {
       aggregated: {
-        totalMarketValue: parseMoney(response.data.totalMarketValue),
-        totalCostBasis: parseMoney(response.data.totalCostBasis),
-        cashBalance: parseMoney(response.data.cashBalance),
-        buyingPower: parseMoney(response.data.buyingPower),
-        cashAvailableForWithdrawal: parseMoney(response.data.cashAvailableForWithdrawal),
-        accountValue: parseMoney(response.data.accountValue),
-        currency: response.data.currency || "USD",
+        totalMarketValue: parseMoney(partySummary.totalMarketValue),
+        totalCostBasis: parseMoney(partySummary.totalCostBasis),
+        cashBalance: parseMoney(partySummary.cashBalance),
+        buyingPower: parseMoney(partySummary.buyingPower),
+        cashAvailableForWithdrawal: parseMoney(partySummary.cashAvailableForWithdrawal),
+        accountValue: parseMoney(partySummary.accountValue),
+        currency: partySummary.currency || "USD",
         calculatedAt,
       },
       accounts,
       meta: {
-        userId: client.userId,
+        clientId: partyId,
         accountCount: accounts.length,
         provider: "harbor",
         generatedAt: new Date().toISOString(),
@@ -194,12 +247,31 @@ export async function getDashboardSnapshot(): Promise<DashboardResult> {
   }
 }
 
-export async function getDashboardAccountBalances(): Promise<DashboardAccountsResult> {
-  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
+export async function getDashboardAccountBalances(filters?: GetBalancesFilters): Promise<DashboardAccountsResult> {
+  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow();
 
   try {
+    const scope = filters?.scope === "account" ? "account" : "party";
+    const normalizedAssetClass = normalizeAssetClass(filters?.assetClass);
+    const accountsInScope =
+      scope === "account"
+        ? linkedAccount.filter((account) => accountTypeMatchesAssetClass(account.accountType, normalizedAssetClass))
+        : linkedAccount;
+
+    if (accountsInScope.length === 0) {
+      return {
+        accounts: [],
+        meta: {
+          clientId: partyId,
+          accountCount: 0,
+          provider: "harbor",
+          generatedAt: new Date().toISOString(),
+        },
+      };
+    }
+
     const accounts = await Promise.all(
-      linkedAccount.map(async (record) => {
+      accountsInScope.map(async (record) => {
         const response = await harborProvider.fetchBalanceByAccountId(record.externalAccountId);
         return toAccountSnapshot(record.accountType, response);
       }),
@@ -208,7 +280,7 @@ export async function getDashboardAccountBalances(): Promise<DashboardAccountsRe
     return {
       accounts,
       meta: {
-        userId: client.userId,
+        clientId: partyId,
         accountCount: accounts.length,
         provider: "harbor",
         generatedAt: new Date().toISOString(),
@@ -219,45 +291,11 @@ export async function getDashboardAccountBalances(): Promise<DashboardAccountsRe
   }
 }
 
-export async function getBalancesSnapshot(): Promise<LegacyBalancesResult> {
-  const accountDetails = await getDashboardAccountBalances();
+export async function getBalancesSnapshot(filters?: GetBalancesFilters): Promise<LegacyBalancesResult> {
+  const accountDetails = await getDashboardAccountBalances(filters);
   return {
     aggregated: buildAggregate(accountDetails.accounts),
     accounts: accountDetails.accounts,
     meta: accountDetails.meta,
   };
-}
-
-export async function getDashboardAccountBalanceByType(
-  accountType: string,
-): Promise<DashboardAccountsResult> {
-  const { client, harborProvider, linkedAccount } = await getLinkedAccountsOrThrow();
-  const normalizedAccountType = normalizeAccountType(accountType);
-  const matchedAccount = linkedAccount.find(
-    (account) => normalizeAccountType(account.accountType) === normalizedAccountType,
-  );
-
-  if (!matchedAccount) {
-    throw new DashboardServiceError(
-      "INVALID_ACCOUNT_TYPE",
-      `No linked account found for accountType "${accountType}".`,
-      404,
-    );
-  }
-
-  try {
-    const response = await harborProvider.fetchBalanceByAccountId(matchedAccount.externalAccountId);
-    const accountSnapshot = toAccountSnapshot(matchedAccount.accountType, response);
-    return {
-      accounts: [accountSnapshot],
-      meta: {
-        userId: client.userId,
-        accountCount: 1,
-        provider: "harbor",
-        generatedAt: new Date().toISOString(),
-      },
-    };
-  } catch (error: unknown) {
-    throw toDashboardServiceError(error);
-  }
 }

@@ -1,18 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { FormEvent, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
 import type {
   ApiResponse,
-  DashboardAccountsPayload,
+  DashboardPayload,
   DestinationAccountsPayload,
-  PaymentInstructionsPayload,
+  PaymentAccountsPayload,
+  SubmitDepositPayload,
+  SubmitDepositRequestPayload,
 } from "@/types/api";
-
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
 
 function parseAmount(value: string) {
   const parsed = Number(value.replace(/[^0-9.]/g, ""));
@@ -20,6 +20,17 @@ function parseAmount(value: string) {
     return 0;
   }
   return parsed;
+}
+
+function sanitizeAmountInput(value: string) {
+  const normalized = value.replace(/[^0-9.]/g, "");
+  const firstDotIndex = normalized.indexOf(".");
+  if (firstDotIndex === -1) {
+    return normalized;
+  }
+  const beforeDot = normalized.slice(0, firstDotIndex + 1);
+  const afterDot = normalized.slice(firstDotIndex + 1).replace(/\./g, "");
+  return `${beforeDot}${afterDot}`;
 }
 
 function formatCurrency(value: number) {
@@ -38,9 +49,17 @@ function formatAccountTypeLabel(value: string) {
     .join(" ");
 }
 
+function formatAccountSelectLabel(accountType: string, accountId: string) {
+  const suffix = accountId.slice(-3);
+  return `${formatAccountTypeLabel(accountType)} •••${suffix}`;
+}
+
 export default function WithdrawPage() {
   const [sourceAccountId, setSourceAccountId] = useState("");
+  const [destinationPaymentAccountId, setDestinationPaymentAccountId] = useState("");
   const [amountInput, setAmountInput] = useState("");
+  const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
+  const [submittedAmount, setSubmittedAmount] = useState(0);
   const [lastResultMessage, setLastResultMessage] = useState<string | null>(null);
   const [lastResultTone, setLastResultTone] = useState<"neutral" | "positive" | "negative">("neutral");
 
@@ -51,11 +70,9 @@ export default function WithdrawPage() {
     isLoading: isDestinationLoading,
     isError: isDestinationError,
   } = useQuery({
-    queryKey: ["withdraw-destination-accounts", DASHBOARD_USER_ID],
+    queryKey: ["withdraw-destination-accounts"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DestinationAccountsPayload>>(
-        `/api/v1/payments/destination-accounts?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<DestinationAccountsPayload>>("/api/v1/payments/destination-accounts");
       if (!response.success) {
         throw new Error(response.error.message);
       }
@@ -65,13 +82,13 @@ export default function WithdrawPage() {
   });
 
   const {
-    data: instructionsData,
-    isLoading: isInstructionsLoading,
-    isError: isInstructionsError,
+    data: paymentAccountsData,
+    isLoading: isPaymentAccountsLoading,
+    isError: isPaymentAccountsError,
   } = useQuery({
-    queryKey: ["payment-instructions"],
+    queryKey: ["withdraw-payment-accounts"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<PaymentInstructionsPayload>>("/api/v1/payments/payment-instructions");
+      const response = await apiFetch<ApiResponse<PaymentAccountsPayload>>("/api/v1/payments/payment-accounts?type=BANK_ACCOUNT");
       if (!response.success) {
         throw new Error(response.error.message);
       }
@@ -86,52 +103,77 @@ export default function WithdrawPage() {
     accountId: account.externalAccountId,
   }));
   const hasAccounts = accounts.length > 0;
-  const destinationAccount = instructionsData?.accounts[0];
+  const linkedPaymentAccounts = (paymentAccountsData?.data ?? []).filter((account) => account.status === "LINKED");
+  const hasLinkedPaymentAccounts = linkedPaymentAccounts.length > 0;
+  const effectiveSourceAccountId =
+    accounts.find((account) => account.accountId === sourceAccountId)?.accountId ?? accounts[0]?.accountId ?? "";
+  const effectiveDestinationPaymentAccountId =
+    linkedPaymentAccounts.find((account) => account.paymentAccountId === destinationPaymentAccountId)?.paymentAccountId ??
+    linkedPaymentAccounts[0]?.paymentAccountId ??
+    "";
 
-  useEffect(() => {
-    if (hasAccounts && !sourceAccountId) {
-      setSourceAccountId(accounts[0].accountId);
-    }
-  }, [accounts, hasAccounts, sourceAccountId]);
-
-  const selectedAccount = useMemo(
-    () => accounts.find((account) => account.accountId === sourceAccountId),
-    [accounts, sourceAccountId],
-  );
   const {
-    data: selectedAccountDetailsData,
-    isLoading: isSelectedAccountLoading,
-    isError: isSelectedAccountError,
+    data: dashboardData,
+    isLoading: isDashboardLoading,
+    isError: isDashboardError,
   } = useQuery({
-    queryKey: ["dashboard-account-balance-by-type", DASHBOARD_USER_ID, selectedAccount?.accountType],
+    queryKey: ["dashboard-for-withdraw"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardAccountsPayload>>(
-        `/api/v1/dashboard/accounts/by-type?userId=${encodeURIComponent(DASHBOARD_USER_ID)}&accountType=${encodeURIComponent(
-          selectedAccount?.accountType ?? "",
-        )}`,
-      );
+      const response = await apiFetch<ApiResponse<DashboardPayload>>("/api/v1/dashboard");
       if (!response.success) {
         throw new Error(response.error.message);
       }
       return response.data;
     },
-    enabled: !!selectedAccount?.accountType,
+    enabled: hasAccounts,
     staleTime: 60_000,
   });
-  const selectedAccountDetails = selectedAccountDetailsData?.accounts[0];
+  const selectedAccountDetails =
+    dashboardData?.accounts.find((account) => account.accountId === effectiveSourceAccountId) ?? null;
+  const selectedPaymentAccount =
+    linkedPaymentAccounts.find((account) => account.paymentAccountId === effectiveDestinationPaymentAccountId) ??
+    null;
+
+  const withdrawMutation = useMutation({
+    mutationFn: async (payload: SubmitDepositRequestPayload) => {
+      const response = await apiFetch<ApiResponse<SubmitDepositPayload>>("/api/v1/payments/deposits", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (!response.success) {
+        throw new Error(response.error.message);
+      }
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setIsSubmitSuccess(true);
+      setSubmittedAmount(data.deposit.amountUsd);
+      setLastResultTone("positive");
+      setLastResultMessage(`Withdrawal submitted (${data.deposit.status}) for ${formatCurrency(data.deposit.amountUsd)}.`);
+      setAmountInput("");
+    },
+    onError: (error) => {
+      setLastResultTone("negative");
+      setLastResultMessage(error instanceof Error ? error.message : "Unable to submit withdrawal right now.");
+    },
+  });
 
   const availableForWithdrawal = selectedAccountDetails?.cashAvailableForWithdrawal ?? 0;
 
   const isAmountTooHigh = amountUsd > availableForWithdrawal;
   const isAmountInvalid = amountUsd <= 0;
+  const shouldShowAmountError = amountInput.trim().length > 0 && isAmountInvalid;
   const isSubmitDisabled =
     !hasAccounts ||
-    !sourceAccountId ||
+    !effectiveSourceAccountId ||
+    !hasLinkedPaymentAccounts ||
+    !effectiveDestinationPaymentAccountId ||
     isAmountInvalid ||
     isAmountTooHigh ||
     isDestinationLoading ||
-    isSelectedAccountLoading ||
-    isInstructionsLoading;
+    isDashboardLoading ||
+    isPaymentAccountsLoading ||
+    withdrawMutation.isPending;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -142,13 +184,46 @@ export default function WithdrawPage() {
       return;
     }
 
-    setLastResultTone("positive");
-    setLastResultMessage(
-      `Withdrawal preview ready: ${formatCurrency(amountUsd)} from ${formatAccountTypeLabel(
-        selectedAccount?.accountType ?? "selected account",
-      )}.`,
-    );
+    withdrawMutation.mutate({
+      direction: "WITHDRAW",
+      sourcePaymentAccountId: effectiveDestinationPaymentAccountId,
+      destinationAccountId: effectiveSourceAccountId,
+      amountUsd,
+    });
   };
+
+  if (isSubmitSuccess) {
+    return (
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4 pb-10">
+        <section className="border-app bg-surface-1 rounded-2xl border p-5 text-center shadow-sm @md:p-6">
+          <div className="bg-positive/15 text-positive mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="h-6 w-6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6L9 17L4 12" />
+            </svg>
+          </div>
+          <h2 className="text-app-primary mt-4 text-xl font-semibold">Withdrawal submitted</h2>
+          <p className="text-app-secondary mt-2 text-sm">
+            Your withdrawal request for {formatCurrency(submittedAmount)} has been submitted successfully.
+          </p>
+          <Link
+            href="/transfer"
+            className="bg-app-accent text-app-accent-contrast mt-5 inline-flex w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-semibold transition hover:opacity-90"
+          >
+            Return to Transfer
+          </Link>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 pb-10">
@@ -188,10 +263,10 @@ export default function WithdrawPage() {
 
         {isDestinationLoading ? <p className="text-app-secondary mt-2 text-sm">Loading accounts...</p> : null}
         {isDestinationError ? <p className="text-negative mt-2 text-sm">Unable to load accounts right now.</p> : null}
-        {isSelectedAccountLoading ? (
+        {isDashboardLoading ? (
           <p className="text-app-secondary mt-2 text-sm">Loading selected account balance...</p>
         ) : null}
-        {isSelectedAccountError ? (
+        {isDashboardError ? (
           <p className="text-negative mt-2 text-sm">Unable to load selected account balance right now.</p>
         ) : null}
 
@@ -200,7 +275,7 @@ export default function WithdrawPage() {
         </label>
         <select
           id="withdraw-source-account"
-          value={sourceAccountId}
+          value={effectiveSourceAccountId}
           onChange={(event) => setSourceAccountId(event.target.value)}
           className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
           disabled={!hasAccounts}
@@ -208,7 +283,7 @@ export default function WithdrawPage() {
           <option value="">Select source account</option>
           {accounts.map((account) => (
             <option key={account.accountId} value={account.accountId}>
-              {formatAccountTypeLabel(account.accountType)}
+              {formatAccountSelectLabel(account.accountType, account.accountId)}
             </option>
           ))}
         </select>
@@ -223,7 +298,7 @@ export default function WithdrawPage() {
           </label>
           <div
             className={`mt-2 flex items-center rounded-lg border px-3 ${
-              isAmountInvalid || isAmountTooHigh ? "border-negative" : "border-app"
+              shouldShowAmountError || isAmountTooHigh ? "border-negative" : "border-app"
             }`}
           >
             <span className="text-app-secondary mr-1 text-lg font-semibold">$</span>
@@ -232,12 +307,12 @@ export default function WithdrawPage() {
               type="text"
               inputMode="decimal"
               value={amountInput}
-              onChange={(event) => setAmountInput(event.target.value)}
+              onChange={(event) => setAmountInput(sanitizeAmountInput(event.target.value))}
               placeholder="0.00"
               className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </div>
-          {isAmountInvalid ? <p className="text-negative mt-1.5 text-xs">Enter an amount greater than $0.00.</p> : null}
+          {shouldShowAmountError ? <p className="text-negative mt-1.5 text-xs">Enter an amount greater than $0.00.</p> : null}
           {isAmountTooHigh ? (
             <p className="text-negative mt-1.5 text-xs">
               Amount cannot exceed {formatCurrency(availableForWithdrawal)} for the selected account.
@@ -254,7 +329,7 @@ export default function WithdrawPage() {
               : "bg-app-accent text-app-accent-contrast hover:opacity-90"
           }`}
         >
-          Continue Withdrawal
+          {withdrawMutation.isPending ? "Submitting..." : "Continue Withdrawal"}
         </button>
 
         {lastResultMessage ? (
@@ -273,28 +348,53 @@ export default function WithdrawPage() {
       </form>
 
       <section className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
-        <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Deposited to</p>
+        <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Withdraw to</p>
 
-        {isInstructionsLoading ? <p className="text-app-secondary mt-2 text-sm">Loading destination account...</p> : null}
-        {isInstructionsError ? (
-          <p className="text-negative mt-2 text-sm">Unable to load destination account right now.</p>
+        {isPaymentAccountsLoading ? <p className="text-app-secondary mt-2 text-sm">Loading payment accounts...</p> : null}
+        {isPaymentAccountsError ? (
+          <p className="text-negative mt-2 text-sm">Unable to load payment accounts right now.</p>
         ) : null}
 
-        {destinationAccount ? (
-          <article className="border-app bg-surface-2 mt-2 rounded-xl border p-3">
-            <p className="text-app-primary text-sm font-semibold">{destinationAccount.bankName}</p>
-            <p className="text-app-secondary mt-1 text-xs">{destinationAccount.accountHolderName}</p>
-            <p className="text-app-muted mt-1 text-xs">
-              {destinationAccount.accountType.toUpperCase()} - Routing - - - -{destinationAccount.routingNumberLast4} -
-              Account - - - -{destinationAccount.accountNumberLast4}
-            </p>
-          </article>
-        ) : (
-          !isInstructionsLoading &&
-          !isInstructionsError && (
-            <p className="text-app-secondary mt-2 text-sm">No destination account is available yet.</p>
-          )
-        )}
+        {!isPaymentAccountsLoading && !isPaymentAccountsError && !hasLinkedPaymentAccounts ? (
+          <p className="text-app-secondary mt-2 text-sm">No linked payment account is available yet.</p>
+        ) : null}
+
+        {hasLinkedPaymentAccounts ? (
+          <div className="mt-2 space-y-2">
+            {linkedPaymentAccounts.map((account) => (
+              <article
+                key={account.paymentAccountId}
+                onClick={() => setDestinationPaymentAccountId(account.paymentAccountId)}
+                className={`cursor-pointer rounded-xl border p-3 transition ${
+                  effectiveDestinationPaymentAccountId === account.paymentAccountId
+                    ? "border-app-accent bg-surface-3"
+                    : "border-app bg-surface-2"
+                }`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setDestinationPaymentAccountId(account.paymentAccountId);
+                  }
+                }}
+              >
+                <p className="text-app-primary text-sm font-semibold">{account.details.bankName ?? "Bank account"}</p>
+                <p className="text-app-secondary mt-1 text-xs">Status: {account.status.replaceAll("_", " ")}</p>
+                <p className="text-app-muted mt-1 text-xs">Payment account ID: {account.paymentAccountId}</p>
+                <p className="text-app-muted mt-1 text-xs">
+                  {effectiveDestinationPaymentAccountId === account.paymentAccountId ? "Selected" : "Tap to select"}
+                </p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+
+        {selectedPaymentAccount ? (
+          <p className="text-app-secondary mt-2 text-xs">
+            Selected destination bank: {selectedPaymentAccount.details.bankName ?? "Bank account"}
+          </p>
+        ) : null}
 
         <Link
           href="/transfer"

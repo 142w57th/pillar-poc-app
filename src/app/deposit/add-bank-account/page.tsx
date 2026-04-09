@@ -2,7 +2,6 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { apiFetch } from "@/lib/api-client";
@@ -12,20 +11,14 @@ import type {
   CreatePaymentAccountRequestPayload,
 } from "@/types/api";
 
-const DASHBOARD_CLIENT_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
-const ACCOUNT_TYPES = ["CHECKING", "SAVINGS"] as const;
-type AccountType = (typeof ACCOUNT_TYPES)[number];
-
 export default function LinkBankAccountPage() {
-  const router = useRouter();
   const queryClient = useQueryClient();
-  const [accountHolderName, setAccountHolderName] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [accountType, setAccountType] = useState<AccountType>("CHECKING");
   const [bankName, setBankName] = useState("");
-  const [bankAddress, setBankAddress] = useState("");
-  const [bankIdentifier, setBankIdentifier] = useState("");
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
+  const [createdPaymentAccount, setCreatedPaymentAccount] = useState<{
+    paymentAccountId: string;
+    status: string;
+  } | null>(null);
 
   const createMutation = useMutation({
     mutationFn: async (payload: CreatePaymentAccountRequestPayload) => {
@@ -39,46 +32,73 @@ export default function LinkBankAccountPage() {
       }
       return response.data;
     },
-    onSuccess: async () => {
+    onSuccess: async (payload) => {
       await queryClient.invalidateQueries({ queryKey: ["payment-accounts"] });
-      router.push("/deposit");
+      setCreatedPaymentAccount({
+        paymentAccountId: payload.data.paymentAccountId,
+        status: payload.data.status,
+      });
+      setSubmitErrorMessage(null);
+      setBankName("");
     },
     onError: (error) => {
-      setResultMessage(error instanceof Error ? error.message : "Unable to link bank account.");
+      setSubmitErrorMessage(error instanceof Error ? error.message : "Unable to link bank account.");
     },
   });
 
-  const isDisabled =
-    !accountHolderName.trim() ||
-    !accountNumber.trim() ||
-    !bankName.trim() ||
-    !bankAddress.trim() ||
-    !bankIdentifier.trim() ||
-    createMutation.isPending;
+  const isDisabled = !bankName.trim() || createMutation.isPending;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setResultMessage(null);
+    setSubmitErrorMessage(null);
     if (isDisabled) return;
 
     createMutation.mutate({
       data: {
-        clientId: DASHBOARD_CLIENT_ID,
         currency: "USD",
         country: "USA",
         details: {
           type: "BANK_ACCOUNT",
-          accountHolderName: accountHolderName.trim(),
-          accountNumber: accountNumber.trim(),
-          accountType,
           bankName: bankName.trim(),
-          bankAddress: bankAddress.trim(),
-          bankIdentifierType: "ABA_ROUTING",
-          bankIdentifier: bankIdentifier.trim(),
         },
       },
+      meta: {},
     });
   };
+
+  if (createdPaymentAccount) {
+    return (
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4 pb-10">
+        <section className="border-app bg-surface-1 rounded-2xl border p-5 text-center shadow-sm @md:p-6">
+          <div className="bg-positive/15 text-positive mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="h-6 w-6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6L9 17L4 12" />
+            </svg>
+          </div>
+          <h2 className="text-app-primary mt-4 text-xl font-semibold">Bank account linked successfully</h2>
+          <p className="text-app-secondary mt-2 text-sm">
+            Payment Account ID: {createdPaymentAccount.paymentAccountId}
+          </p>
+          <p className="text-app-secondary mt-1 text-sm">Status: {createdPaymentAccount.status}</p>
+          <Link
+            href="/deposit"
+            className="bg-app-accent text-app-accent-contrast mt-5 inline-flex w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-semibold transition hover:opacity-90"
+          >
+            Return to Deposit
+          </Link>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 pb-10">
@@ -108,43 +128,7 @@ export default function LinkBankAccountPage() {
 
       <form onSubmit={handleSubmit} className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
         <h2 className="text-app-primary text-xl font-semibold">Bank details</h2>
-        <p className="text-app-secondary mt-1 text-sm">Link a new payment account.</p>
-
-        <label htmlFor="account-holder-name" className="text-app-primary mt-4 block text-sm font-semibold">
-          Account holder name
-        </label>
-        <input
-          id="account-holder-name"
-          value={accountHolderName}
-          onChange={(event) => setAccountHolderName(event.target.value)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-        />
-
-        <label htmlFor="account-number" className="text-app-primary mt-4 block text-sm font-semibold">
-          Account number
-        </label>
-        <input
-          id="account-number"
-          value={accountNumber}
-          onChange={(event) => setAccountNumber(event.target.value)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-        />
-
-        <label htmlFor="account-type" className="text-app-primary mt-4 block text-sm font-semibold">
-          Account type
-        </label>
-        <select
-          id="account-type"
-          value={accountType}
-          onChange={(event) => setAccountType(event.target.value as AccountType)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-        >
-          {ACCOUNT_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
+        <p className="text-app-secondary mt-1 text-sm">Link a new payment account with bank name only.</p>
 
         <label htmlFor="bank-name" className="text-app-primary mt-4 block text-sm font-semibold">
           Bank name
@@ -153,26 +137,6 @@ export default function LinkBankAccountPage() {
           id="bank-name"
           value={bankName}
           onChange={(event) => setBankName(event.target.value)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-        />
-
-        <label htmlFor="bank-address" className="text-app-primary mt-4 block text-sm font-semibold">
-          Bank address
-        </label>
-        <input
-          id="bank-address"
-          value={bankAddress}
-          onChange={(event) => setBankAddress(event.target.value)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-        />
-
-        <label htmlFor="bank-identifier" className="text-app-primary mt-4 block text-sm font-semibold">
-          Bank identifier
-        </label>
-        <input
-          id="bank-identifier"
-          value={bankIdentifier}
-          onChange={(event) => setBankIdentifier(event.target.value)}
           className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
         />
 
@@ -188,8 +152,9 @@ export default function LinkBankAccountPage() {
           {createMutation.isPending ? "Submitting..." : "Submit"}
         </button>
 
-        {resultMessage ? <p className="text-negative mt-2 text-xs">{resultMessage}</p> : null}
+        {submitErrorMessage ? <p className="text-negative mt-2 text-xs">{submitErrorMessage}</p> : null}
       </form>
+
     </div>
   );
 }

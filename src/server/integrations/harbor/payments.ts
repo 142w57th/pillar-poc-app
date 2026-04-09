@@ -22,7 +22,6 @@ export type HarborPaymentInstructionsResponse = {
     generatedAt: string;
   };
 };
-export type PaymentAccountType = "CHECKING" | "SAVINGS";
 export type PaymentAccountStatus = "LINKING" | "LINKED" | "PENDING_VERIFICATION" | "BLOCKED" | "UNLINKED";
 export type PaymentAccountIdentifierType = "ABA_ROUTING" | "IBAN" | "IFSC";
 
@@ -61,12 +60,7 @@ export type HarborCreatePaymentAccountResponse = {
 export type HarborCreatePaymentAccountInput = {
   clientId: string;
   nickname?: string;
-  accountHolderName: string;
-  accountNumber: string;
-  accountType: PaymentAccountType;
-  bankName: string;
-  bankAddress: string;
-  bankIdentifier: string;
+  bankName?: string;
   currency?: string;
   country?: string;
   externalId?: string;
@@ -89,30 +83,24 @@ export type HarborCreatePaymentAccountRequest = {
     metadata?: Record<string, string>;
     details: {
       type: "BANK_ACCOUNT";
-      accountType: PaymentAccountType;
-      bankName: string;
-      bankAddress: string;
-      bankIdentifierType: PaymentAccountIdentifierType;
-      bankIdentifier: string;
-      accountHolderName: string;
-      accountNumber: string;
+      bankName?: string;
     };
   };
   meta: Record<string, never>;
 };
 export type HarborSubmitDepositRequest = {
   data: {
-    transferType: "WIRE";
+    transferType: "WIRE" | "ACH" | "CARD" | "CASH_PROMOTION" | "CASH_ADJUSTMENT" | "WALLET_TRANSFER";
     orchestrationMode: "PARTNER_PROCESSOR";
     description: string;
     comment: string;
     sourceAccount: {
       id: string;
-      type: "CLIENT";
+      type: "CLIENT" | "PAYMENT" | "PARTNER";
     };
     destinationAccount: {
       id: string;
-      type: "CLIENT";
+      type: "CLIENT" | "PAYMENT" | "PARTNER";
     };
     externalId: string;
     metadata: {
@@ -194,13 +182,7 @@ export function buildHarborCreatePaymentAccountRequest(
       metadata: input.metadata,
       details: {
         type: "BANK_ACCOUNT",
-        accountType: input.accountType,
         bankName: input.bankName,
-        bankAddress: input.bankAddress,
-        bankIdentifierType: "ABA_ROUTING",
-        bankIdentifier: input.bankIdentifier,
-        accountHolderName: input.accountHolderName,
-        accountNumber: input.accountNumber,
       },
     },
     meta: {},

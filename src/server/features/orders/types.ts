@@ -1,7 +1,6 @@
 import type { TradeAssetClass, TradeSide, EventSide, HarborProviderId } from "@/server/integrations/harbor/orders";
 
 export type SubmitOrderInput = {
-  userId: string;
   instrumentSymbol: string;
   assetClass: TradeAssetClass;
   side: TradeSide;
@@ -13,7 +12,7 @@ export type SubmitOrderInput = {
 export type SubmitOrderResult = {
   order: {
     orderId: string;
-    status: "accepted" | "rejected" | "pending";
+    status: "ACCEPTED" | "REJECTED" | "PENDING";
     submittedAt: string;
     instrumentSymbol: string;
     assetClass: TradeAssetClass;
@@ -49,7 +48,7 @@ export type OrdersListResult = {
     providerReference?: string;
   }>;
   meta: {
-    userId: string;
+    clientId: string;
     count: number;
     provider: HarborProviderId;
     source: string;

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type InstrumentSearchItem = {
   symbol: string;
   name: string;
+  assetClass?: string;
 };
 
 type InstrumentSearchBarProps = {
@@ -37,7 +38,7 @@ export function InstrumentSearchBar({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const filteredInstruments = useMemo(
-    () => instruments.filter((instrument) => matchesInstrument(instrument, query)).slice(0, 8),
+    () => instruments.filter((instrument) => matchesInstrument(instrument, query)).slice(0, 10),
     [instruments, query],
   );
 
