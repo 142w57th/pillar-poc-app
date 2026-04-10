@@ -79,7 +79,7 @@ Define order lifecycle, validations, routing/execution behavior, and failure han
 | 2026-03-30 | Rewired `GET /api/v1/orders` through Harbor provider proxy (party-scoped), matching the positions integration pattern. | AI assistant |
 | 2026-03-30 | Added `GET /api/v1/orders` and a lazy-loaded dashboard Orders section that fetches on expand. | AI assistant |
 | 2026-03-30 | Wired `/buy` and `/sell` submits to `POST /api/v1/orders`; mock submission now returns `pending` status to support staged API rollout. | AI assistant |
-| 2026-03-30 | Enabled buy/sell submission semantics in backend, mapped real execution to `/v1/orders`, resolved account IDs from KV by asset class, and persisted submitted orders in KV storage. | AI assistant |
+| 2026-03-30 | Enabled buy/sell submission semantics in backend, mapped real execution to `/trading/v1/orders`, resolved account IDs from KV by asset class, and persisted submitted orders in KV storage. | AI assistant |
 | 2026-03-30 | Renamed buy route from `/orders` to `/buy`, added preview-only `/sell` ticket with invested-balance limits and Event Contract sell semantics. | AI assistant |
 | 2026-03-29 | Added realistic order-labeling conventions for crypto pairs and event-contract side-specific payout messaging. | AI assistant |
 | 2026-03-27 | Created domain template. | AI assistant |
