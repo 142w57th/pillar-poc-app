@@ -15,12 +15,12 @@ type EndpointMapping = {
 const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   fetchBalanceByAccountId: {
     method: "GET",
-    path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/balances`,
+    path: (accountId: unknown) => `/v2/accounts/${accountId}/balances`,
     description: "Fetch account balance",
   },
   fetchBalanceByPartyId: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/financials/parties/${partyId}/balances`,
+    path: (partyId: unknown) => `/v2/parties/${partyId}/balances`,
     description: "Fetch party-level balance",
   },
   fetchInstruments: {
@@ -30,12 +30,12 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   submitOrder: {
     method: "POST",
-    path: "/trading/v1/orders",
+    path: "/v1/orders",
     description: "Submit trade order",
   },
   fetchOrders: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/trading/parties/${partyId}/orders`,
+    path: (partyId: unknown) => `/v2/parties/${partyId}/orders`,
     description: "Fetch party orders",
   },
   fetchPaymentInstructions: {
@@ -50,7 +50,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchPositions: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/financials/parties/${partyId}/positions`,
+    path: (partyId: unknown) => `/v2/parties/${partyId}/positions`,
     description: "Fetch party positions",
   },
   fetchQuote: {

@@ -54,9 +54,9 @@ Copy `.env.example` to `.env` and adjust values as needed:
 - `HARBOR_AUTH_URL`
 - `HARBOR_CLIENT_ID`
 - `HARBOR_CLIENT_SECRET`
-- `HARBOR_BALANCES_PATH` (optional, defaults to `/v2/financials/accounts/{accountId}/balances`)
+- `HARBOR_BALANCES_PATH` (optional, defaults to `/v2/accounts/{accountId}/balances`)
 - `HARBOR_INSTRUMENTS_PATH` (optional, defaults to `/instruments`)
-- `HARBOR_ORDERS_PATH` (optional, defaults to `/trading/v1/orders`)
+- `HARBOR_ORDERS_PATH` (optional, defaults to `/v1/orders`)
 - `HARBOR_POSITIONS_PATH` (optional, defaults to `/positions`)
 - `HARBOR_QUOTES_PATH` (optional, defaults to `/quotes`)
 - `HARBOR_AUTH_SCOPE` (optional)
