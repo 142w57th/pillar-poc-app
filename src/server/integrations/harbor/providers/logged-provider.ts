@@ -36,7 +36,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchBalanceByAccountId: {
     method: "GET",
-    path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/balances`,
+    path: (accountId: unknown) => `/v2/accounts/${accountId}/balances`,
     description: "Fetch account balance",
   },
   fetchAccountTemplates: {
@@ -46,7 +46,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchBalanceByPartyId: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/financials/parties/${partyId}/balances`,
+    path: (partyId: unknown) => `/v2/parties/${partyId}/balances`,
     description: "Fetch party-level balance",
   },
   fetchInstruments: {
@@ -56,13 +56,13 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   submitOrder: {
     method: "POST",
-    path: "/trading/v1/orders",
+    path: "/v1/orders",
     description: "Submit trade order",
   },
   fetchOrders: {
     method: "GET",
     path: (input: unknown) => {
-      if (!input || typeof input !== "object") return "/trading/v1/orders";
+      if (!input || typeof input !== "object") return "/v1/orders";
       const params = new URLSearchParams();
       const cast = input as Record<string, unknown>;
       if (typeof cast.accountId === "string" && cast.accountId) params.set("accountId", cast.accountId);
@@ -73,7 +73,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
       if (typeof cast.page === "number" && Number.isFinite(cast.page)) params.set("page", String(cast.page));
       if (typeof cast.limit === "number" && Number.isFinite(cast.limit)) params.set("limit", String(cast.limit));
       const query = params.toString();
-      return query ? `/trading/v1/orders?${query}` : "/trading/v1/orders";
+      return query ? `/v1/orders?${query}` : "/v1/orders";
     },
     description: "Fetch account orders",
   },
@@ -107,12 +107,12 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchPositions: {
     method: "GET",
-    path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/positions`,
+    path: (accountId: unknown) => `/v2/accounts/${accountId}/positions`,
     description: "Fetch account positions",
   },
   fetchPositionsByParty: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/financials/parties/${partyId}/positions`,
+    path: (partyId: unknown) => `/v2/parties/${partyId}/positions`,
     description: "Fetch party positions",
   },
   fetchQuote: {

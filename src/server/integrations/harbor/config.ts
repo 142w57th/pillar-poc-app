@@ -48,16 +48,16 @@ export function getHarborConfig(): HarborConfig {
     partiesPath: process.env.HARBOR_PARTIES_PATH || "/v2/parties",
     accountsPath: process.env.HARBOR_ACCOUNTS_PATH || "/v2/accounts",
     accountTemplatesPath: process.env.HARBOR_ACCOUNT_TEMPLATES_PATH || "/v1/account-templates",
-    balancesPath: process.env.HARBOR_BALANCES_PATH || "/v2/financials/accounts/{accountId}/balances",
-    partyBalancesPath: process.env.HARBOR_PARTY_BALANCES_PATH || "/v2/financials/parties/{partyId}/balances",
+    balancesPath: process.env.HARBOR_BALANCES_PATH || "/v2/accounts/{accountId}/balances",
+    partyBalancesPath: process.env.HARBOR_PARTY_BALANCES_PATH || "/v2/parties/{partyId}/balances",
     instrumentsPath: process.env.HARBOR_INSTRUMENTS_PATH || "/instruments",
-    ordersPath: process.env.HARBOR_ORDERS_PATH || "/trading/v1/orders",
-    partyOrdersPath: process.env.HARBOR_PARTY_ORDERS_PATH || "/v2/trading/parties",
-    positionsPath: process.env.HARBOR_POSITIONS_PATH || "/v2/financials/accounts/{accountId}/positions",
+    ordersPath: process.env.HARBOR_ORDERS_PATH || "/v1/orders",
+    partyOrdersPath: process.env.HARBOR_PARTY_ORDERS_PATH || "/v2/parties",
+    positionsPath: process.env.HARBOR_POSITIONS_PATH || "/v2/accounts/{accountId}/positions",
     partyPositionsPath:
       process.env.HARBOR_PARTY_POISITIONS_PATH ||
       process.env.HARBOR_PARTY_POSITIONS_PATH ||
-      "/v2/financials/parties/{partyId}/positions",
+      "/v2/parties/{partyId}/positions",
     quotesPath: process.env.HARBOR_QUOTES_PATH || "/quotes",
     priceSnapshotApiPath:
       process.env.HARBOR_PRICE_SNAPSHOT_API || "/v2/prices/{symbol}/snapshot",
