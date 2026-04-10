@@ -63,8 +63,8 @@ Define order lifecycle, validations, routing/execution behavior, and failure han
 
 - Orders are submitted through the unified **Harbor** provider (`HARBOR_PROVIDER=mock|real`).
 - When `mock`, a simulated order is created immediately in `pending` state with a mock order ID.
-- When `real`, the order is translated to Harbor's market-order envelope and POSTed to the Harbor API path configured by `HARBOR_ORDERS_PATH` (default `/trading/v1/orders`).
-- Real Harbor order mapping currently supports `Equity` and `Crypto` payload translation for `/trading/v1/orders`.
+- When `real`, the order is translated to Harbor's market-order envelope and POSTed to the Harbor API path configured by `HARBOR_ORDERS_PATH` (default `/v1/orders`).
+- Real Harbor order mapping currently supports `Equity` and `Crypto` payload translation for `/v1/orders`.
 - Every submitted order (mock or real) is persisted in in-memory `Keyv` storage together with account linkage and normalized order metadata.
 
 ## Open Questions

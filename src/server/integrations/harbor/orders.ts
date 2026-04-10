@@ -109,7 +109,7 @@ function mapAssetClassToHarbor(assetClass: TradeAssetClass): HarborAssetClass {
   if (assetClass === "Equity") return "EQUITY";
   if (assetClass === "Crypto") return "CRYPTO";
   throw new Error(
-    `Asset class "${assetClass}" is not supported by Harbor /trading/v1/orders.`,
+    `Asset class "${assetClass}" is not supported by Harbor /v1/orders.`,
   );
 }
 
