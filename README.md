@@ -17,7 +17,7 @@ Mobile-first trading app built with Next.js App Router, Tailwind v4, and React Q
 - Tailwind CSS
 - TanStack React Query
 - Route Handlers under `src/app/api` for backend APIs
-- `Keyv` in-memory runtime storage
+- `Keyv` Postgres-backed runtime storage
 
 ## Getting Started
 
@@ -32,6 +32,8 @@ Open http://localhost:3000.
 ## Available Scripts
 
 - `npm run dev` - start local dev server
+- `npm run db:generate` - generate Drizzle SQL migrations from schema
+- `npm run migrate` - apply Drizzle migrations from `drizzle/`
 - `npm run build` - production build
 - `npm run start` - start production server
 - `npm run lint` - run ESLint
@@ -43,8 +45,12 @@ Copy `.env.example` to `.env` and adjust values as needed:
 
 - `NEXT_PUBLIC_APP_NAME`
 - `NEXT_PUBLIC_API_BASE_URL`
-- `DEMO_USER_ID` (used by local seed utility)
-- `NEXT_PUBLIC_DEMO_USER_ID` (used by dashboard/buy/sell/transfer UI requests)
+- `DB_HOST`
+- `DB_PORT`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD` (Postgres connection for app users + Keyv persistence)
+- `APP_AUTH_SECRET` (signs login session cookies)
 - `HARBOR_PROVIDER` (`mock` by default, set `real` to call Harbor APIs for all domains)
 - `HARBOR_API_BASE_URL`
 - `HARBOR_AUTH_URL`
@@ -77,9 +83,14 @@ Harbor is the single backend provider for all data domains (balances, instrument
 - Use `HARBOR_PROVIDER=real` to route all API calls through the live Harbor integration (with OAuth auth).
 - All API response contracts stay the same in both modes.
 
-Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`. Submitted orders are persisted in the in-memory `Keyv` store for history/audit usage while the server process is running.
+Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`, and order history is fetched from Harbor APIs.
 
-Runtime storage uses `Keyv` with the default in-memory backend and reads environment variables from `src/server/.env`.
+Runtime storage uses `Keyv` with a Postgres backend and only persists onboarding/account linkage plus OAuth token cache (no order storage).
+
+User authentication is email/password based:
+
+- Passwords are stored as bcrypt hashes in Postgres (`app_users` table).
+- Session auth uses an HTTP-only signed cookie.
 
 ## API Endpoints
 
@@ -87,6 +98,13 @@ Health + status:
 
 - `GET /api/health`
 - `GET /api/v1/status`
+
+Authentication:
+
+- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/session`
 
 Dashboard + portfolio:
 
@@ -146,6 +164,7 @@ src/
     providers.tsx
     query-client.ts
   server/
+    auth/
     features/
     integrations/harbor/
     storage/
@@ -164,6 +183,25 @@ src/
   - `docs/business-logic-domains/portfolio.md`
   - `docs/business-logic-domains/risk.md`
   - `docs/business-logic-domains/transfer.md`
+
+## Deployment (External DB)
+
+For staging/production, use your existing deployed app and connect it to a managed Postgres instance (for example, existing RDS).
+
+Required environment variables:
+
+- `DB_HOST`
+- `DB_PORT`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `APP_AUTH_SECRET`
+
+Apply schema migrations before app start/deploy:
+
+```bash
+npm run migrate
+```
 
 ## Onboarding Flow
 

@@ -13,6 +13,14 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+type AuthSessionPayload = {
+  user: {
+    id: string;
+    email: string;
+    status: "ACTIVE" | "DISABLED";
+  };
+};
+
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "Onboarding", href: "/onboarding" },
@@ -23,23 +31,50 @@ const NAV_ITEMS = [
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const isLoginRoute = pathname.startsWith("/login");
+  const isOnboardingRoute = pathname.startsWith("/onboarding");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const trimmedSearchQuery = searchQuery.trim();
+
+  const { data: sessionUser, isLoading: isSessionLoading } = useQuery({
+    queryKey: ["auth-session"],
+    queryFn: async () => {
+      const response = await fetch("/api/v1/auth/session", {
+        method: "GET",
+        cache: "no-store",
+      });
+      if (response.status === 401) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new Error(`Session request failed: ${response.status}`);
+      }
+      const payload = (await response.json()) as ApiResponse<AuthSessionPayload>;
+      if (!payload.success) {
+        throw new Error(payload.error.message);
+      }
+      return payload.data.user;
+    },
+    enabled: !isLoginRoute,
+    staleTime: 30_000,
+    retry: false,
+  });
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery.trim());
+      setDebouncedSearchQuery(trimmedSearchQuery);
     }, 350);
 
     return () => {
       clearTimeout(timeout);
     };
-  }, [searchQuery]);
+  }, [trimmedSearchQuery]);
 
-  const shouldFetchInstruments = debouncedSearchQuery.length > 0;
-  const isSearchDebouncing =
-    searchQuery.trim().length > 0 && searchQuery.trim() !== debouncedSearchQuery;
+  const shouldFetchInstruments = debouncedSearchQuery.length > 0 && !isLoginRoute && Boolean(sessionUser);
+  const isSearchDebouncing = trimmedSearchQuery.length > 0 && trimmedSearchQuery !== debouncedSearchQuery;
 
   const { data: instrumentsData, isLoading: isInstrumentsLoading } = useQuery({
     queryKey: ["instruments-catalog", debouncedSearchQuery],
@@ -65,18 +100,34 @@ export function AppShell({ children }: AppShellProps) {
       }
       return response.data;
     },
+    enabled: !isLoginRoute && Boolean(sessionUser),
     staleTime: 30_000,
   });
 
   useEffect(() => {
-    if (isOnboardingStatusLoading || pathname.startsWith("/onboarding")) {
+    if (isSessionLoading) {
+      return;
+    }
+
+    if (!isLoginRoute && !sessionUser) {
+      router.replace("/login");
+      return;
+    }
+
+    if (isLoginRoute && sessionUser) {
+      router.replace("/");
+    }
+  }, [isLoginRoute, isSessionLoading, router, sessionUser]);
+
+  useEffect(() => {
+    if (isLoginRoute || !sessionUser || isOnboardingStatusLoading || isOnboardingRoute) {
       return;
     }
     const hasLinkedAccounts = (onboardingStatus?.accounts.length ?? 0) > 0;
     if (!onboardingStatus?.clientOnboarded || !hasLinkedAccounts) {
       router.replace("/onboarding");
     }
-  }, [isOnboardingStatusLoading, onboardingStatus, pathname, router]);
+  }, [isLoginRoute, isOnboardingRoute, isOnboardingStatusLoading, onboardingStatus, router, sessionUser]);
 
   const instrumentSearchOptions = useMemo(
     () =>
@@ -95,6 +146,21 @@ export function AppShell({ children }: AppShellProps) {
   const closeSidebar = () => {
     setIsSidebarOpen(false);
   };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST" });
+      window.location.href = "/login";
+      return;
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
+  if (isLoginRoute) {
+    return <div className="bg-app-shell min-h-svh">{children}</div>;
+  }
 
   return (
     <div className="@container bg-app-shell text-app-primary relative min-h-svh">
@@ -219,6 +285,15 @@ export function AppShell({ children }: AppShellProps) {
           <div className="border-app bg-surface-2 mt-auto rounded-xl border p-4">
             <p className="text-app-muted text-xs uppercase tracking-[0.14em]">Status</p>
             <p className="text-app-primary mt-1 text-sm font-medium">Market data connection healthy</p>
+            <p className="text-app-secondary mt-2 text-xs">{sessionUser?.email ?? "Not signed in"}</p>
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="border-app bg-surface-1 text-app-secondary mt-3 w-full rounded-md border px-3 py-2 text-sm font-medium transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoggingOut ? "Signing out..." : "Sign out"}
+            </button>
           </div>
         </aside>
       </div>

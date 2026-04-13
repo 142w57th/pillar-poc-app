@@ -7,8 +7,10 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 
 import type { ApiLogEntry } from "@/types/api-log";
 
@@ -28,36 +30,37 @@ const DESKTOP_QUERY = "(min-width: 1024px)";
 const MAX_ENTRIES = 200;
 
 export function ApiLogProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isLoginRoute = pathname.startsWith("/login");
   const [entries, setEntries] = useState<ApiLogEntry[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const isDesktop = useSyncExternalStore(
+    (onStoreChange) => {
+      const mql = window.matchMedia(DESKTOP_QUERY);
+      mql.addEventListener("change", onStoreChange);
+      return () => mql.removeEventListener("change", onStoreChange);
+    },
+    () => window.matchMedia(DESKTOP_QUERY).matches,
+    () => false,
+  );
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const mql = window.matchMedia(DESKTOP_QUERY);
-    setIsDesktop(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
-
-  useEffect(() => {
-    if (!isDesktop) {
+    if (!isDesktop || isLoginRoute) {
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
-        setIsConnected(false);
       }
       return;
     }
 
-    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     function connect() {
       const es = new EventSource("/api/v1/api-log/stream");
       esRef.current = es;
 
-      es.onopen = () => setIsConnected(true);
+      es.onopen = () => setConnectionOpen(true);
 
       es.onmessage = (event) => {
         try {
@@ -72,7 +75,7 @@ export function ApiLogProvider({ children }: { children: ReactNode }) {
       };
 
       es.onerror = () => {
-        setIsConnected(false);
+        setConnectionOpen(false);
         es.close();
         esRef.current = null;
         reconnectTimer = setTimeout(connect, 3000);
@@ -82,22 +85,28 @@ export function ApiLogProvider({ children }: { children: ReactNode }) {
     connect();
 
     return () => {
-      clearTimeout(reconnectTimer);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
       }
-      setIsConnected(false);
     };
-  }, [isDesktop]);
+  }, [isDesktop, isLoginRoute]);
 
   const clearLog = useCallback(() => {
     setEntries([]);
     fetch("/api/v1/api-log/stream", { method: "DELETE" }).catch(() => {});
   }, []);
 
+  const isConnected = isDesktop && !isLoginRoute && connectionOpen;
+  const visibleEntries = isLoginRoute ? [] : entries;
+
   return (
-    <ApiLogContext.Provider value={{ entries, clearLog, isConnected }}>
+    <ApiLogContext.Provider
+      value={{ entries: visibleEntries, clearLog, isConnected }}
+    >
       {children}
     </ApiLogContext.Provider>
   );

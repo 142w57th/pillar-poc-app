@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
+import KeyvPostgres from "@keyv/postgres";
 import dotenv from "dotenv";
 import Keyv from "keyv";
+import { getDatabaseUrl } from "@/server/storage/database-url";
 
 dotenv.config({ path: resolve(process.cwd(), "src/server/.env"), override: false });
 
 type ClientRecord = {
   id: string;
-  userId?: string;
+  userId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,71 +35,61 @@ type OAuthTokenRecord = {
   updatedAt: string;
 };
 
-type OrderRecord = {
-  id: string;
-  clientId?: string;
-  userId?: string;
-  accountId: string;
-  provider: "mock" | "harbor";
-  orderId: string;
-  status: "ACCEPTED" | "REJECTED" | "PENDING";
-  submittedAt: string;
-  instrumentSymbol: string;
-  assetClass: "Equity" | "Crypto" 
-  side: "BUY" | "SELL";
-  amountUsd: number;
-  pricePerUnit: number;
-  eventSide?: "YES" | "NO";
-  estimatedUnits?: number;
-  estimatedMaxReturnUsd?: number;
-  providerReference?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
 type KVStoreData = {
-  version: 1;
+  version: 2;
   clients: ClientRecord[];
   brokerAccounts: BrokerAccountRecord[];
   oauthTokens: OAuthTokenRecord[];
-  orders: OrderRecord[];
 };
 
 const STORE_KEY = "app:kv-store:data";
-const keyv = new Keyv<KVStoreData>();
+let keyv: Keyv<KVStoreData> | null = null;
+
+function resolveKeyvStoreUrl() {
+  const keyvUrl = process.env.KEYV_POSTGRES_URL?.trim();
+  if (keyvUrl) {
+    return keyvUrl;
+  }
+  return getDatabaseUrl();
+}
+
+function getKeyv() {
+  if (!keyv) {
+    keyv = new Keyv<KVStoreData>({
+      store: new KeyvPostgres(resolveKeyvStoreUrl()),
+    });
+  }
+  return keyv;
+}
 
 const EMPTY_STORE: KVStoreData = {
-  version: 1,
+  version: 2,
   clients: [],
   brokerAccounts: [],
   oauthTokens: [],
-  orders: [],
 };
 
 let writeQueue: Promise<void> = Promise.resolve();
 
 function cloneStore(data?: Partial<KVStoreData>): KVStoreData {
   return {
-    version: 1,
-    clients: data?.clients ?? [],
+    version: 2,
+    clients: (data?.clients ?? []).filter((client): client is ClientRecord => Boolean(client.userId)),
     brokerAccounts: data?.brokerAccounts ?? [],
     oauthTokens: data?.oauthTokens ?? [],
-    orders: data?.orders ?? [],
   };
 }
 
 async function readStore(): Promise<KVStoreData> {
-  const parsed = (await keyv.get(STORE_KEY)) as Partial<KVStoreData> | undefined;
-
+  const parsed = (await getKeyv().get(STORE_KEY)) as Partial<KVStoreData> | undefined;
   if (!parsed) {
     return structuredClone(EMPTY_STORE);
   }
-
   return cloneStore(parsed);
 }
 
 async function writeStore(data: KVStoreData) {
-  await keyv.set(STORE_KEY, data);
+  await getKeyv().set(STORE_KEY, data);
 }
 
 async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): Promise<T> {
@@ -107,7 +99,6 @@ async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): P
     await writeStore(store);
     return result;
   };
-
   const current = writeQueue.then(run, run);
   writeQueue = current.then(
     () => undefined,
@@ -219,35 +210,8 @@ export async function getClientByUserId(userId: string) {
   return store.clients.find((item) => item.userId === userId) ?? null;
 }
 
-export async function getCurrentClient() {
-  const store = await readStore();
-  if (store.clients.length === 0) {
-    return null;
-  }
-
-  const sorted = [...store.clients].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  return sorted[0] ?? null;
-}
-
-export async function createClient(clientId?: string) {
-  return mutateStore((store) => {
-    if (clientId) {
-      const existingById = store.clients.find((item) => item.id === clientId);
-      if (existingById) {
-        existingById.updatedAt = new Date().toISOString();
-        return existingById;
-      }
-    }
-
-    const now = new Date().toISOString();
-    const client: ClientRecord = {
-      id: clientId ?? randomUUID(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.clients.push(client);
-    return client;
-  });
+export async function getCurrentClient(userId: string) {
+  return getClientByUserId(userId);
 }
 
 export async function createClientForUserId(userId: string, clientId?: string) {
@@ -305,152 +269,4 @@ export async function upsertOAuthToken(params: {
       updatedAt: now,
     });
   });
-}
-
-export async function appendOrderForUser(params: {
-  userId: string;
-  accountId: string;
-  provider: "mock" | "harbor";
-  orderId: string;
-  status: "ACCEPTED" | "REJECTED" | "PENDING";
-  submittedAt: string;
-  instrumentSymbol: string;
-  assetClass: "Equity" | "Crypto"
-  side: "BUY" | "SELL";
-  amountUsd: number;
-  pricePerUnit: number;
-  eventSide?: "YES" | "NO";
-  estimatedUnits?: number;
-  estimatedMaxReturnUsd?: number;
-  providerReference?: string;
-}) {
-  return mutateStore((store) => {
-    const now = new Date().toISOString();
-    const matchedClient = store.clients.find((item) => item.userId === params.userId);
-    const record: OrderRecord = {
-      id: randomUUID(),
-      clientId: matchedClient?.id,
-      userId: params.userId,
-      accountId: params.accountId,
-      provider: params.provider,
-      orderId: params.orderId,
-      status: params.status,
-      submittedAt: params.submittedAt,
-      instrumentSymbol: params.instrumentSymbol,
-      assetClass: params.assetClass,
-      side: params.side,
-      amountUsd: params.amountUsd,
-      pricePerUnit: params.pricePerUnit,
-      eventSide: params.eventSide,
-      estimatedUnits: params.estimatedUnits,
-      estimatedMaxReturnUsd: params.estimatedMaxReturnUsd,
-      providerReference: params.providerReference,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    store.orders.push(record);
-    return record;
-  });
-}
-
-export async function appendOrderForClient(params: {
-  clientId: string;
-  accountId: string;
-  provider: "mock" | "harbor";
-  orderId: string;
-  status: "ACCEPTED" | "REJECTED" | "PENDING";
-  submittedAt: string;
-  instrumentSymbol: string;
-  assetClass: "Equity" | "Crypto"
-  side: "BUY" | "SELL";
-  amountUsd: number;
-  pricePerUnit: number;
-  eventSide?: "YES" | "NO";
-  estimatedUnits?: number;
-  estimatedMaxReturnUsd?: number;
-  providerReference?: string;
-}) {
-  return mutateStore((store) => {
-    const now = new Date().toISOString();
-    const matchedClient = store.clients.find((item) => item.id === params.clientId);
-    const record: OrderRecord = {
-      id: randomUUID(),
-      clientId: params.clientId,
-      userId: matchedClient?.userId,
-      accountId: params.accountId,
-      provider: params.provider,
-      orderId: params.orderId,
-      status: params.status,
-      submittedAt: params.submittedAt,
-      instrumentSymbol: params.instrumentSymbol,
-      assetClass: params.assetClass,
-      side: params.side,
-      amountUsd: params.amountUsd,
-      pricePerUnit: params.pricePerUnit,
-      eventSide: params.eventSide,
-      estimatedUnits: params.estimatedUnits,
-      estimatedMaxReturnUsd: params.estimatedMaxReturnUsd,
-      providerReference: params.providerReference,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    store.orders.push(record);
-    return record;
-  });
-}
-
-export async function listOrdersByUserId(userId: string) {
-  const store = await readStore();
-
-  return store.orders
-    .filter((item) => item.userId === userId)
-    .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))
-    .map((item) => ({
-      accountId: item.accountId,
-      provider: item.provider,
-      orderId: item.orderId,
-      status: item.status,
-      submittedAt: item.submittedAt,
-      instrumentSymbol: item.instrumentSymbol,
-      assetClass: item.assetClass,
-      side: item.side,
-      amountUsd: item.amountUsd,
-      pricePerUnit: item.pricePerUnit,
-      eventSide: item.eventSide,
-      estimatedUnits: item.estimatedUnits,
-      estimatedMaxReturnUsd: item.estimatedMaxReturnUsd,
-      providerReference: item.providerReference,
-    }));
-}
-
-export async function listOrdersByClientId(clientId: string) {
-  const store = await readStore();
-  const client = store.clients.find((item) => item.id === clientId);
-
-  return store.orders
-    .filter((item) => {
-      if (item.clientId === clientId) {
-        return true;
-      }
-      return Boolean(client?.userId && item.userId && item.userId === client.userId);
-    })
-    .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))
-    .map((item) => ({
-      accountId: item.accountId,
-      provider: item.provider,
-      orderId: item.orderId,
-      status: item.status,
-      submittedAt: item.submittedAt,
-      instrumentSymbol: item.instrumentSymbol,
-      assetClass: item.assetClass,
-      side: item.side,
-      amountUsd: item.amountUsd,
-      pricePerUnit: item.pricePerUnit,
-      eventSide: item.eventSide,
-      estimatedUnits: item.estimatedUnits,
-      estimatedMaxReturnUsd: item.estimatedMaxReturnUsd,
-      providerReference: item.providerReference,
-    }));
 }

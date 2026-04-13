@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   getCurrentClient,
-  createClient,
+  createClientForUserId,
   listBrokerAccountsByClientId,
   upsertBrokerAccountForClientId,
 } from "@/server/storage/keyv-store";
@@ -25,8 +25,7 @@ type OnboardingErrorCode =
   | "ACCOUNT_TEMPLATES_FETCH_FAILED"
   | "PARTY_CREATE_FAILED"
   | "ACCOUNT_CREATE_FAILED"
-  | "SERVER_CONFIG_ERROR"
-  | "SERVER_ERROR";
+  | "SERVER_CONFIG_ERROR";
 
 const VALID_ACCOUNT_TYPES = [ACCOUNT_TEMPLATE_CODES.CRYPTO, ACCOUNT_TEMPLATE_CODES.EQUITY] as const;
 
@@ -62,8 +61,8 @@ function resolveAccountTemplateCodeOrNull(accountType: string): string | null {
   }
 }
 
-export async function getOnboardingStatus(): Promise<OnboardingStatusResult> {
-  const client = await getCurrentClient();
+export async function getOnboardingStatus(userId: string): Promise<OnboardingStatusResult> {
+  const client = await getCurrentClient(userId);
   const accounts = client ? await listBrokerAccountsByClientId(client.id) : [];
   const normalizedAccounts = accounts.map((account) => ({
     accountType: resolveAccountTemplateCodeOrNull(account.accountType) ?? account.accountType,
@@ -106,7 +105,7 @@ export async function getOnboardingAccountTemplates(): Promise<OnboardingAccount
   }
 }
 
-export async function createAccount(request: CreateAccountRequest): Promise<CreateAccountResult> {
+export async function createAccount(userId: string, request: CreateAccountRequest): Promise<CreateAccountResult> {
   if (!request.accountType) {
     throw new OnboardingServiceError("MISSING_ACCOUNT_TYPE", "accountType is required.");
   }
@@ -132,7 +131,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
     );
   }
 
-  const existingClient = await getCurrentClient();
+  const existingClient = await getCurrentClient(userId);
 
   if (!existingClient && !request.personalInfo) {
     throw new OnboardingServiceError(
@@ -202,7 +201,7 @@ export async function createAccount(request: CreateAccountRequest): Promise<Crea
           totalNetWorth: request.suitability.totalNetWorth,
         },
       });
-      client = await createClient(party.partyId);
+      client = await createClientForUserId(userId, party.partyId);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected party create integration error.";
       if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {

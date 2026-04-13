@@ -1,18 +1,22 @@
+import { NextRequest } from "next/server";
+
 import { fail, ok } from "@/server/http/response";
+import { withAuthedRoute } from "@/server/http/authed-route";
 import { DashboardServiceError, getDashboardSnapshot } from "@/server/features/dashboard/service";
 
-export async function GET() {
-  try {
-    const payload = await getDashboardSnapshot();
+export const GET = withAuthedRoute(
+  async (_request: NextRequest, user) => {
+    const payload = await getDashboardSnapshot(user.userId);
     return ok(payload);
-  } catch (error: unknown) {
-    if (error instanceof DashboardServiceError) {
-      console.error(`[dashboard] ${error.code} (${error.status}): ${error.message}`);
-      return fail(error.code, error.message, error.status);
-    }
-
-    console.error("[dashboard] Unhandled error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof DashboardServiceError) {
+        console.error(`[dashboard] ${error.code} (${error.status}): ${error.message}`);
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+    logLabel: "dashboard",
+  },
+);

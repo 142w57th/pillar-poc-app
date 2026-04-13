@@ -1,5 +1,5 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
-import { InstrumentsResult } from "@/server/features/instruments/types";
+import type { InstrumentsResult } from "@/server/features/instruments/types";
 import { listLinkedBrokerAccounts } from "@/server/features/dashboard/repository";
 import { toCanonicalAssetClassCode, type CanonicalAssetClassCode } from "@/lib/account-asset-class";
 
@@ -79,8 +79,8 @@ function accountTypeToAssetClass(accountType: string): SupportedAssetClass | nul
   return toCanonicalAssetClassCode(accountType);
 }
 
-async function resolveAllowedAssetClasses(): Promise<Set<SupportedAssetClass>> {
-  const linkedAccounts = await listLinkedBrokerAccounts();
+async function resolveAllowedAssetClasses(userId: string): Promise<Set<SupportedAssetClass>> {
+  const linkedAccounts = await listLinkedBrokerAccounts(userId);
   const allowed = new Set<SupportedAssetClass>();
 
   for (const account of linkedAccounts) {
@@ -93,13 +93,13 @@ async function resolveAllowedAssetClasses(): Promise<Set<SupportedAssetClass>> {
   return allowed;
 }
 
-export async function getInstrumentsCatalog(input?: GetInstrumentsCatalogInput): Promise<InstrumentsResult> {
+export async function getInstrumentsCatalog(userId: string, input?: GetInstrumentsCatalogInput): Promise<InstrumentsResult> {
   const harborProvider = getHarborProvider();
 
   try {
     const [response, allowedAssetClasses] = await Promise.all([
       harborProvider.fetchInstruments(),
-      resolveAllowedAssetClasses(),
+      resolveAllowedAssetClasses(userId),
     ]);
     const filteredInstruments =
       allowedAssetClasses.size === 0 ? [] : filterInstruments(response.instruments, allowedAssetClasses, input);

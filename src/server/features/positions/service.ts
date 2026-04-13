@@ -1,6 +1,6 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import { getCurrentPartyId, listLinkedBrokerAccounts } from "@/server/features/dashboard/repository";
-import { PositionsResult } from "@/server/features/positions/types";
+import type { PositionsResult } from "@/server/features/positions/types";
 import { toCanonicalAssetClassCode } from "@/lib/account-asset-class";
 
 type PositionsErrorCode = "POSITIONS_FETCH_FAILED" | "SERVER_CONFIG_ERROR";
@@ -57,12 +57,12 @@ function emptyPositionsResult(): PositionsResult {
   };
 }
 
-export async function getPositions(filters?: GetPositionsFilters): Promise<PositionsResult> {
+export async function getPositions(userId: string, filters?: GetPositionsFilters): Promise<PositionsResult> {
   const harborProvider = getHarborProvider();
 
   try {
     const scope = filters?.scope === "account" ? "account" : "party";
-    const linkedAccounts = await listLinkedBrokerAccounts();
+    const linkedAccounts = await listLinkedBrokerAccounts(userId);
     const normalizedAssetClass = normalizeAssetClass(filters?.assetClass);
     const normalizedSymbol = filters?.symbol?.trim().toUpperCase();
     const filteredAccounts = linkedAccounts.filter((account) =>
@@ -96,7 +96,7 @@ export async function getPositions(filters?: GetPositionsFilters): Promise<Posit
       };
     }
 
-    const partyId = await getCurrentPartyId();
+    const partyId = await getCurrentPartyId(userId);
     if (!partyId) {
       return emptyPositionsResult();
     }

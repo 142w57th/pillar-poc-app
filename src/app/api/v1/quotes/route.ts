@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 
 import { getQuote, QuotesServiceError } from "@/server/features/quotes/service";
+import { withAuthedRoute } from "@/server/http/authed-route";
 import { fail, ok } from "@/server/http/response";
 
-export async function GET(request: NextRequest) {
-  try {
+export const GET = withAuthedRoute(
+  async (request: NextRequest) => {
     const symbol = request.nextUrl.searchParams.get("symbol") ?? "";
     const includeExtendedHoursRaw = request.nextUrl.searchParams.get("includeExtendedHours");
     const includeExtendedHours = includeExtendedHoursRaw === "true";
@@ -13,12 +14,13 @@ export async function GET(request: NextRequest) {
       includeExtendedHours,
     });
     return ok(payload);
-  } catch (error: unknown) {
-    if (error instanceof QuotesServiceError) {
-      return fail(error.code, error.message, error.status);
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof QuotesServiceError) {
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+  },
+);
