@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
 
-import KeyvPostgres from "@keyv/postgres";
-import dotenv from "dotenv";
 import Keyv from "keyv";
-import { getDatabaseUrl } from "@/server/storage/database-url";
-
-dotenv.config({ path: resolve(process.cwd(), "src/server/.env"), override: false });
+import { getDatabaseUrlOrNull, getStorageMode, registerInMemoryReset } from "@/server/storage/storage-mode";
 
 type ClientRecord = {
   id: string;
@@ -45,19 +40,25 @@ type KVStoreData = {
 const STORE_KEY = "app:kv-store:data";
 let keyv: Keyv<KVStoreData> | null = null;
 
-function resolveKeyvStoreUrl() {
+function resolveKeyvStoreUrl(): string | null {
   const keyvUrl = process.env.KEYV_POSTGRES_URL?.trim();
   if (keyvUrl) {
     return keyvUrl;
   }
-  return getDatabaseUrl();
+  return getDatabaseUrlOrNull();
 }
 
 function getKeyv() {
   if (!keyv) {
-    keyv = new Keyv<KVStoreData>({
-      store: new KeyvPostgres(resolveKeyvStoreUrl()),
-    });
+    const url = resolveKeyvStoreUrl();
+    if (url && getStorageMode() === "postgres") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("@keyv/postgres");
+      const KeyvPostgres = mod.default ?? mod.KeyvPostgres ?? mod;
+      keyv = new Keyv<KVStoreData>({ store: new KeyvPostgres(url) });
+    } else {
+      keyv = new Keyv<KVStoreData>();
+    }
   }
   return keyv;
 }
@@ -105,6 +106,13 @@ async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): P
     () => undefined,
   );
   return current;
+}
+
+if (getStorageMode() === "memory") {
+  registerInMemoryReset(() => {
+    getKeyv().clear();
+    writeQueue = Promise.resolve();
+  });
 }
 
 export async function listBrokerAccountsByUserId(userId: string) {

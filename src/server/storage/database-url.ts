@@ -1,23 +1,13 @@
-import { resolve } from "node:path";
+import { getDatabaseUrlOrNull } from "@/server/storage/storage-mode";
 
-import dotenv from "dotenv";
-
-dotenv.config({ path: resolve(process.cwd(), "src/server/.env"), override: false });
-
+/**
+ * Returns the Postgres connection URL or throws if no DB is configured.
+ * Used by drizzle.config.ts (migrations) and any code that strictly requires Postgres.
+ */
 export function getDatabaseUrl() {
-  const url = process.env.DATABASE_URL?.trim();
+  const url = getDatabaseUrlOrNull();
   if (url) {
     return url;
-  }
-
-  const host = process.env.DB_HOST?.trim();
-  const port = process.env.DB_PORT?.trim() || "5432";
-  const database = process.env.DB_NAME?.trim();
-  const user = process.env.DB_USER?.trim();
-  const password = process.env.DB_PASSWORD?.trim();
-
-  if (host && database && user && password) {
-    return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
   }
 
   throw new Error(

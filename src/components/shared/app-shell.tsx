@@ -9,6 +9,12 @@ import { InstrumentSearchBar } from "@/components/shared/instrument-search-bar";
 import { apiFetch } from "@/lib/api-client";
 import { ApiResponse, InstrumentsCatalogPayload, OnboardingStatusPayload } from "@/types/api";
 
+type AppStatusPayload = {
+  apiVersion: string;
+  message: string;
+  storageMode: "postgres" | "memory";
+};
+
 type AppShellProps = {
   children: ReactNode;
 };
@@ -37,6 +43,11 @@ export function AppShell({ children }: AppShellProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isClearingData, setIsClearingData] = useState(false);
   const trimmedSearchQuery = searchQuery.trim();
 
   const { data: sessionUser, isLoading: isSessionLoading } = useQuery({
@@ -62,6 +73,25 @@ export function AppShell({ children }: AppShellProps) {
     staleTime: 30_000,
     retry: false,
   });
+
+  const { data: appStatus } = useQuery({
+    queryKey: ["app-status"],
+    queryFn: async () => {
+      const response = await fetch("/api/v1/status");
+      if (!response.ok) {
+        throw new Error(`Status request failed: ${response.status}`);
+      }
+      const payload = (await response.json()) as ApiResponse<AppStatusPayload>;
+      if (!payload.success) {
+        throw new Error(payload.error.message);
+      }
+      return payload.data;
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const isMemoryMode = appStatus?.storageMode === "memory";
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -155,6 +185,50 @@ export function AppShell({ children }: AppShellProps) {
       return;
     } finally {
       setIsLoggingOut(false);
+    }
+  };
+
+  const handleInviteSubmit = async () => {
+    if (!inviteEmail.trim()) {
+      setInviteError("Email is required.");
+      setInviteMessage(null);
+      return;
+    }
+
+    setIsInviting(true);
+    setInviteError(null);
+    setInviteMessage(null);
+    try {
+      const response = await fetch("/api/v1/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail }),
+      });
+      const payload = (await response.json()) as ApiResponse<{ email: string; created: boolean }>;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.success ? "Failed to create invite." : payload.error.message);
+      }
+      setInviteMessage(
+        payload.data.created
+          ? `Invite added for ${payload.data.email}.`
+          : `${payload.data.email} is already invited.`,
+      );
+      setInviteEmail("");
+    } catch (error: unknown) {
+      setInviteError(error instanceof Error ? error.message : "Unable to create invite.");
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const handleClearData = async () => {
+    setIsClearingData(true);
+    try {
+      await fetch("/api/v1/admin/clear-data", { method: "POST" });
+      window.location.href = "/login";
+      return;
+    } finally {
+      setIsClearingData(false);
     }
   };
 
@@ -281,6 +355,44 @@ export function AppShell({ children }: AppShellProps) {
               );
             })}
           </nav>
+
+          {isMemoryMode ? (
+            <div className="border-app bg-surface-2 mt-4 rounded-xl border p-3">
+              <p className="text-app-muted text-xs uppercase tracking-[0.14em]">In-memory mode</p>
+              <p className="text-app-secondary mt-1 text-xs">No database connected. Data is stored in memory and will be lost on restart.</p>
+              <button
+                type="button"
+                onClick={handleClearData}
+                disabled={isClearingData}
+                className="border-app bg-surface-1 text-negative mt-2 w-full rounded-md border px-3 py-2 text-sm font-medium transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isClearingData ? "Clearing..." : "Clear app data"}
+              </button>
+            </div>
+          ) : (
+            <div className="border-app bg-surface-2 mt-4 rounded-xl border p-3">
+              <p className="text-app-muted text-xs uppercase tracking-[0.14em]">Invite user</p>
+              <div className="mt-2 space-y-2">
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="user@example.com"
+                  className="border-app bg-surface-1 text-app-primary w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-app-accent"
+                />
+                <button
+                  type="button"
+                  onClick={handleInviteSubmit}
+                  disabled={isInviting}
+                  className="bg-app-accent text-app-accent-contrast w-full rounded-md px-3 py-2 text-sm font-medium transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isInviting ? "Inviting..." : "Add invite"}
+                </button>
+                {inviteMessage ? <p className="text-positive text-xs">{inviteMessage}</p> : null}
+                {inviteError ? <p className="text-negative text-xs">{inviteError}</p> : null}
+              </div>
+            </div>
+          )}
 
           <div className="border-app bg-surface-2 mt-auto rounded-xl border p-4">
             <p className="text-app-muted text-xs uppercase tracking-[0.14em]">Status</p>

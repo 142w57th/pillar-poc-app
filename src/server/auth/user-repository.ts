@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb } from "@/server/db/client";
 import { appUsers } from "@/server/db/schema";
+import { getStorageMode, registerInMemoryReset } from "@/server/storage/storage-mode";
 
 export type AppUserStatus = "ACTIVE" | "DISABLED";
 
@@ -38,7 +39,45 @@ export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+// --- In-memory store (used when no DB is configured) ---
+
+const DEMO_EMAIL = "demo@pillar.app";
+const DEMO_PASSWORD_HASH = "$2b$12$HCgSdZh0IJpTf8O/S2rbgefwfYtE.EwSb6Oh4iQyvaYipNU.9amCC";
+
+function createDemoUser(): AppUser {
+  const now = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    email: DEMO_EMAIL,
+    passwordHash: DEMO_PASSWORD_HASH,
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+let memoryUsersById = new Map<string, AppUser>();
+let memoryUsersByEmail = new Map<string, AppUser>();
+
+function seedMemoryStore() {
+  memoryUsersById = new Map();
+  memoryUsersByEmail = new Map();
+  const demo = createDemoUser();
+  memoryUsersById.set(demo.id, demo);
+  memoryUsersByEmail.set(demo.email, demo);
+}
+
+if (getStorageMode() === "memory") {
+  seedMemoryStore();
+  registerInMemoryReset(seedMemoryStore);
+}
+
+// --- Public API ---
+
 export async function findUserByEmail(email: string): Promise<AppUser | null> {
+  if (getStorageMode() === "memory") {
+    return memoryUsersByEmail.get(normalizeEmail(email)) ?? null;
+  }
   const db = getDb();
   const normalizedEmail = normalizeEmail(email);
   const [row] = await db.select().from(appUsers).where(eq(appUsers.email, normalizedEmail)).limit(1);
@@ -46,6 +85,9 @@ export async function findUserByEmail(email: string): Promise<AppUser | null> {
 }
 
 export async function findUserById(id: string): Promise<AppUser | null> {
+  if (getStorageMode() === "memory") {
+    return memoryUsersById.get(id) ?? null;
+  }
   const db = getDb();
   const [row] = await db.select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   return row ? mapRow(row) : null;
@@ -56,8 +98,27 @@ export async function createUser(params: {
   passwordHash: string;
   status?: AppUserStatus;
 }): Promise<AppUser> {
-  const db = getDb();
   const normalizedEmail = normalizeEmail(params.email);
+
+  if (getStorageMode() === "memory") {
+    if (memoryUsersByEmail.has(normalizedEmail)) {
+      throw new Error("An account with this email already exists.");
+    }
+    const now = new Date().toISOString();
+    const user: AppUser = {
+      id: randomUUID(),
+      email: normalizedEmail,
+      passwordHash: params.passwordHash,
+      status: params.status ?? "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    };
+    memoryUsersById.set(user.id, user);
+    memoryUsersByEmail.set(user.email, user);
+    return user;
+  }
+
+  const db = getDb();
   const id = randomUUID();
   const status = params.status ?? "ACTIVE";
   const [row] = await db

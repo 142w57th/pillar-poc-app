@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 
+import { isEmailInvited } from "@/server/auth/invite-repository";
 import { createSessionToken, AUTH_COOKIE_NAME, getSessionCookieOptions } from "@/server/auth/session";
 import { createUser, findUserByEmail } from "@/server/auth/user-repository";
 import { fail, ok } from "@/server/http/response";
@@ -28,6 +29,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as SignupPayload;
     const { email, password } = validateSignupPayload(body);
+    const invited = await isEmailInvited(email);
+    if (!invited) {
+      return fail("INVITE_REQUIRED", "This email is not invited to sign up.", 403);
+    }
+
     const existing = await findUserByEmail(email);
     if (existing) {
       return fail("EMAIL_ALREADY_EXISTS", "An account with this email already exists.", 409);

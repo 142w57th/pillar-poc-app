@@ -14,6 +14,11 @@ export const appUsers = pgTable(
   (table) => [check("app_users_status_check", sql`${table.status} IN ('ACTIVE', 'DISABLED')`)],
 );
 
+export const appInvites = pgTable("app_invites", {
+  email: text("email").primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const keyv = pgTable("keyv", {
   key: varchar("key", { length: 255 }).primaryKey(),
   value: text("value"),
