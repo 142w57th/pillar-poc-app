@@ -8,7 +8,7 @@ import { Providers } from "@/lib/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Trading POC App",
+  title: "Pillar POC App",
   description: "Mobile-first trading web app scaffold.",
 };
 
