@@ -262,5 +262,5 @@ npm run migrate
 - App colors are implemented with semantic CSS tokens in `src/app/globals.css` (for example: `--surface-1`, `--text-primary`, `--positive`, `--tag-equity-bg`).
 - UI components use semantic utility classes (`bg-surface-1`, `text-app-secondary`, `border-app`, `text-positive`, `tag-equity`, etc.) instead of hardcoded Tailwind color names.
 - Theme selection is available in `Settings` and persisted locally using `localStorage` key `qapital-theme`.
-- Included theme presets: `light`, `dark`, `ocean`, `sunset`.
+- Included theme presets: `light`, `dark`, `ocean`, `sunset`, `draftkings`.
 - To adjust brand/theme colors, update token values in `:root` and `[data-theme="..."]` blocks without changing component markup.
