@@ -17,7 +17,7 @@ Mobile-first trading app built with Next.js App Router, Tailwind v4, and React Q
 - Tailwind CSS
 - TanStack React Query
 - Route Handlers under `src/app/api` for backend APIs
-- `Keyv` Postgres-backed runtime storage
+- `Keyv` runtime storage (Postgres-backed when DB is configured, in-memory otherwise)
 
 ## Getting Started
 
@@ -28,6 +28,46 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+### Quick Start (no database)
+
+The app runs without a Postgres database out of the box. When no `DATABASE_URL` or `DB_*` variables are set, it automatically starts in **in-memory mode**:
+
+- All data is stored in application memory (lost on restart).
+- The login screen simplifies to a single password field. Enter the demo password to get started.
+- The demo password is configured via the `DEMO_PASSWORD` environment variable (defaults to `password` if not set).
+- **Multi-user isolation:** Each browser automatically generates a unique client ID (stored in `localStorage`). Multiple people can use the same running app simultaneously and each will see their own onboarding state, linked accounts, and portfolio data.
+- The sidebar shows an **In-memory mode** indicator with a **Clear app data** button that resets your data and client ID, giving you a fresh start without affecting other users.
+
+To use in-memory mode, make sure the `DB_*` lines in `src/server/.env` are commented out or removed. Required env vars:
+
+```env
+APP_AUTH_SECRET=replace-with-a-long-random-secret
+DEMO_PASSWORD=password
+```
+
+`APP_AUTH_SECRET` is needed for session signing. `DEMO_PASSWORD` sets the password shown on the login screen (defaults to `password` if omitted).
+
+### With a Postgres database
+
+To persist data across restarts, configure a Postgres connection in `src/server/.env`:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=pillar_poc
+DB_USER=pillar
+DB_PASSWORD=pillar
+```
+
+Then run migrations before starting the app:
+
+```bash
+npm run migrate
+npm run dev
+```
+
+In database mode, the sidebar shows the **Invite user** form instead of the clear-data button. New users must be invited before they can sign up.
 
 ## Available Scripts
 
@@ -45,12 +85,13 @@ Copy `.env.example` to `.env` and adjust values as needed:
 
 - `NEXT_PUBLIC_APP_NAME`
 - `NEXT_PUBLIC_API_BASE_URL`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD` (Postgres connection for app users + Keyv persistence)
-- `APP_AUTH_SECRET` (signs login session cookies)
+- `DB_HOST` (optional)
+- `DB_PORT` (optional, defaults to 5432)
+- `DB_NAME` (optional)
+- `DB_USER` (optional)
+- `DB_PASSWORD` (optional -- when all DB vars are omitted, the app runs in memory mode)
+- `APP_AUTH_SECRET` (required -- signs login session cookies)
+- `DEMO_PASSWORD` (optional -- sets the demo login password in memory mode, defaults to `password`)
 - `HARBOR_PROVIDER` (`mock` by default, set `real` to call Harbor APIs for all domains)
 - `HARBOR_API_BASE_URL`
 - `HARBOR_AUTH_URL`
@@ -85,11 +126,11 @@ Harbor is the single backend provider for all data domains (balances, instrument
 
 Orders support both `BUY` and `SELL` side values at `POST /api/v1/orders`, and order history is fetched from Harbor APIs.
 
-Runtime storage uses `Keyv` with a Postgres backend and only persists onboarding/account linkage plus OAuth token cache (no order storage).
+Runtime storage uses `Keyv` for onboarding/account linkage and OAuth token cache (no order storage). When Postgres is configured, Keyv is backed by the database; otherwise it uses in-memory storage.
 
 User authentication is email/password based:
 
-- Passwords are stored as bcrypt hashes in Postgres (`app_users` table).
+- Passwords are stored as bcrypt hashes (in Postgres `app_users` table when DB is configured, or in-memory with a pre-seeded demo user).
 - Session auth uses an HTTP-only signed cookie.
 
 ## API Endpoints
@@ -136,6 +177,10 @@ Payments:
 - `POST /api/v1/payments/payment-accounts`
 - `GET /api/v1/payments/destination-accounts`
 - `POST /api/v1/payments/deposits`
+
+Admin:
+
+- `POST /api/v1/admin/clear-data` (memory mode only -- resets all in-memory state and clears session)
 
 Debug stream:
 
@@ -186,9 +231,9 @@ src/
 
 ## Deployment (External DB)
 
-For staging/production, use your existing deployed app and connect it to a managed Postgres instance (for example, existing RDS).
+For staging/production with persistent data, connect the app to a managed Postgres instance (for example, existing RDS). Without a database the app still runs, but all data is lost on restart.
 
-Required environment variables:
+Required environment variables for database mode:
 
 - `DB_HOST`
 - `DB_PORT`

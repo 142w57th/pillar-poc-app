@@ -4,10 +4,12 @@ import { NextRequest } from "next/server";
 import { createSessionToken, AUTH_COOKIE_NAME, getSessionCookieOptions } from "@/server/auth/session";
 import { findUserByEmail } from "@/server/auth/user-repository";
 import { fail, ok } from "@/server/http/response";
+import { getStorageMode } from "@/server/storage/storage-mode";
 
 type LoginPayload = {
   email?: string;
   password?: string;
+  clientId?: string;
 };
 
 class LoginValidationError extends Error {}
@@ -18,16 +20,16 @@ function validateLoginPayload(payload: LoginPayload) {
   if (!email || !password) {
     throw new LoginValidationError("email and password are required.");
   }
-  return { email, password };
+  return { email, password, clientId: payload.clientId?.trim() };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as LoginPayload;
-    const { email, password } = validateLoginPayload(body);
+    const { email, password, clientId } = validateLoginPayload(body);
     const user = await findUserByEmail(email);
     if (!user) {
-      return fail("INVALID_CREDENTIALS", "Invalid email or password.", 401);
+      return fail("INVALID_CREDENTIALS", "Invalid credentials.", 401);
     }
     if (user.status !== "ACTIVE") {
       return fail("USER_DISABLED", "This user is not active.", 403);
@@ -35,18 +37,20 @@ export async function POST(request: NextRequest) {
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
-      return fail("INVALID_CREDENTIALS", "Invalid email or password.", 401);
+      return fail("INVALID_CREDENTIALS", "Invalid credentials.", 401);
     }
+
+    const effectiveUserId = getStorageMode() === "memory" && clientId ? clientId : user.id;
 
     const response = ok({
       user: {
-        id: user.id,
+        id: effectiveUserId,
         email: user.email,
         status: user.status,
       },
     });
     const token = createSessionToken({
-      userId: user.id,
+      userId: effectiveUserId,
       email: user.email,
       status: user.status,
     });

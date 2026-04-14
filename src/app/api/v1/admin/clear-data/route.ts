@@ -1,15 +1,18 @@
+import { NextRequest } from "next/server";
+
 import { withAuthedRoute } from "@/server/http/authed-route";
 import { fail, ok } from "@/server/http/response";
 import { AUTH_COOKIE_NAME, getSessionCookieOptions } from "@/server/auth/session";
-import { clearInMemoryStores, getStorageMode } from "@/server/storage/storage-mode";
+import { getStorageMode } from "@/server/storage/storage-mode";
+import { clearUserData } from "@/server/storage/keyv-store";
 
 export const POST = withAuthedRoute(
-  async () => {
+  async (_request: NextRequest, user) => {
     if (getStorageMode() !== "memory") {
       return fail("NOT_AVAILABLE", "Clear data is only available in memory mode.", 400);
     }
 
-    clearInMemoryStores();
+    await clearUserData(user.userId);
 
     const response = ok({ cleared: true });
     response.cookies.set(AUTH_COOKIE_NAME, "", {

@@ -225,6 +225,7 @@ export function AppShell({ children }: AppShellProps) {
     setIsClearingData(true);
     try {
       await fetch("/api/v1/admin/clear-data", { method: "POST" });
+      localStorage.removeItem("pillar_client_id");
       window.location.href = "/login";
       return;
     } finally {

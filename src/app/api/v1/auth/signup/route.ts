@@ -5,10 +5,12 @@ import { isEmailInvited } from "@/server/auth/invite-repository";
 import { createSessionToken, AUTH_COOKIE_NAME, getSessionCookieOptions } from "@/server/auth/session";
 import { createUser, findUserByEmail } from "@/server/auth/user-repository";
 import { fail, ok } from "@/server/http/response";
+import { getStorageMode } from "@/server/storage/storage-mode";
 
 type SignupPayload = {
   email?: string;
   password?: string;
+  clientId?: string;
 };
 
 class SignupValidationError extends Error {}
@@ -22,13 +24,13 @@ function validateSignupPayload(payload: SignupPayload) {
   if (password.length < 8) {
     throw new SignupValidationError("Password must be at least 8 characters.");
   }
-  return { email, password };
+  return { email, password, clientId: payload.clientId?.trim() };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as SignupPayload;
-    const { email, password } = validateSignupPayload(body);
+    const { email, password, clientId } = validateSignupPayload(body);
     const invited = await isEmailInvited(email);
     if (!invited) {
       return fail("INVITE_REQUIRED", "This email is not invited to sign up.", 403);
@@ -42,15 +44,17 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await createUser({ email, passwordHash, status: "ACTIVE" });
 
+    const effectiveUserId = getStorageMode() === "memory" && clientId ? clientId : user.id;
+
     const response = ok({
       user: {
-        id: user.id,
+        id: effectiveUserId,
         email: user.email,
         status: user.status,
       },
     }, 201);
     const token = createSessionToken({
-      userId: user.id,
+      userId: effectiveUserId,
       email: user.email,
       status: user.status,
     });

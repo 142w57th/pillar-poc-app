@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 
 import { getDb } from "@/server/db/client";
@@ -42,7 +43,8 @@ export function normalizeEmail(email: string) {
 // --- In-memory store (used when no DB is configured) ---
 
 const DEMO_EMAIL = "demo@pillar.app";
-const DEMO_PASSWORD_HASH = "$2b$12$HCgSdZh0IJpTf8O/S2rbgefwfYtE.EwSb6Oh4iQyvaYipNU.9amCC";
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD?.trim() || "password";
+const DEMO_PASSWORD_HASH = bcrypt.hashSync(DEMO_PASSWORD, 10);
 
 function createDemoUser(): AppUser {
   const now = new Date().toISOString();

@@ -115,6 +115,16 @@ if (getStorageMode() === "memory") {
   });
 }
 
+export async function clearUserData(userId: string) {
+  await mutateStore((store) => {
+    const client = store.clients.find((item) => item.userId === userId);
+    if (client) {
+      store.brokerAccounts = store.brokerAccounts.filter((item) => item.clientId !== client.id);
+      store.clients = store.clients.filter((item) => item.userId !== userId);
+    }
+  });
+}
+
 export async function listBrokerAccountsByUserId(userId: string) {
   const store = await readStore();
   const client = store.clients.find((item) => item.userId === userId);
