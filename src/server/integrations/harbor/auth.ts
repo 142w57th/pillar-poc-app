@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { emitApiLog } from "@/server/api-log/event-bus";
 import { getHarborConfig } from "@/server/integrations/harbor/config";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
 import { getOAuthToken, upsertOAuthToken } from "@/server/storage/keyv-store";
 
 type HarborTokenResponse = {
@@ -55,6 +56,8 @@ function maskToken(token: string): string {
 
 async function requestNewToken() {
   const config = getHarborConfig();
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
   const body = new URLSearchParams({
     grant_type: "client_credentials",
   });
@@ -81,6 +84,8 @@ async function requestNewToken() {
     const durationMs = Math.round(performance.now() - start);
     emitApiLog({
       id: randomUUID(),
+      userId: requestUserId,
+      sessionId: requestSessionId,
       timestamp: Date.now(),
       method: "POST",
       path: authPath,
@@ -97,6 +102,8 @@ async function requestNewToken() {
 
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: "POST",
     path: authPath,

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { fail, ok } from "@/server/http/response";
+import { withAuthedRoute } from "@/server/http/authed-route";
 import {
   createPaymentAccount,
   getPaymentAccounts,
@@ -67,45 +68,47 @@ function parseGetPaymentAccountsQuery(request: NextRequest) {
   return { type: type as "BANK_ACCOUNT" | undefined } as const;
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    const client = await getCurrentClient();
+export const GET = withAuthedRoute(
+  async (request: NextRequest, user) => {
+    const client = await getCurrentClient(user.userId);
     if (!client) {
       throw new PaymentsServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
     }
     const query = parseGetPaymentAccountsQuery(request);
     const payload = await getPaymentAccounts({ clientId: client.id, type: query.type });
     return ok(payload);
-  } catch (error: unknown) {
-    if (error instanceof PaymentsServiceError) {
-      console.error(`[payment-accounts] ${error.code} (${error.status}): ${error.message}`);
-      return fail(error.code, error.message, error.status);
-    }
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof PaymentsServiceError) {
+        console.error(`[payment-accounts] ${error.code} (${error.status}): ${error.message}`);
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+    logLabel: "payment-accounts GET",
+  },
+);
 
-    console.error("[payment-accounts] Unhandled GET error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
+export const POST = withAuthedRoute(
+  async (request: NextRequest, user) => {
     const body = (await request.json()) as unknown;
-    const client = await getCurrentClient();
+    const client = await getCurrentClient(user.userId);
     if (!client) {
       throw new PaymentsServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
     }
     const input = parseCreatePaymentAccountPayload(body, client.id);
     const payload = await createPaymentAccount(input);
     return ok(payload, 201);
-  } catch (error: unknown) {
-    if (error instanceof PaymentsServiceError) {
-      console.error(`[payment-accounts] ${error.code} (${error.status}): ${error.message}`);
-      return fail(error.code, error.message, error.status);
-    }
-
-    console.error("[payment-accounts] Unhandled POST error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof PaymentsServiceError) {
+        console.error(`[payment-accounts] ${error.code} (${error.status}): ${error.message}`);
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+    logLabel: "payment-accounts POST",
+  },
+);

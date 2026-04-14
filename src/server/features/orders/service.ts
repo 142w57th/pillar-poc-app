@@ -1,5 +1,5 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
-import { OrdersListResult, SubmitOrderInput, SubmitOrderResult } from "@/server/features/orders/types";
+import type { OrdersListResult, SubmitOrderInput, SubmitOrderResult } from "@/server/features/orders/types";
 import {
   getCurrentClient,
   listBrokerAccountsByClientId,
@@ -42,8 +42,8 @@ function validateSubmitOrderInput(input: SubmitOrderInput) {
   }
 }
 
-async function resolveCurrentClientOrThrow() {
-  const client = await getCurrentClient();
+async function resolveCurrentClientOrThrowByUserId(userId: string) {
+  const client = await getCurrentClient(userId);
   if (!client) {
     throw new OrdersServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
   }
@@ -75,11 +75,11 @@ async function resolveAccountIdForOrder(clientId: string, assetClass: SubmitOrde
   return matchingAccount.externalAccountId;
 }
 
-export async function submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
+export async function submitOrder(userId: string, input: SubmitOrderInput): Promise<SubmitOrderResult> {
   validateSubmitOrderInput(input);
 
   const harborProvider = getHarborProvider();
-  const client = await resolveCurrentClientOrThrow();
+  const client = await resolveCurrentClientOrThrowByUserId(userId);
   const accountId = await resolveAccountIdForOrder(client.id, input.assetClass);
   const externalId = `app-order-${Date.now()}`;
   let orderResult: Awaited<ReturnType<typeof harborProvider.submitOrder>>;
@@ -128,10 +128,10 @@ export async function submitOrder(input: SubmitOrderInput): Promise<SubmitOrderR
   };
 }
 
-export async function getOrders(): Promise<OrdersListResult> {
+export async function getOrders(userId: string): Promise<OrdersListResult> {
   try {
     const harborProvider = getHarborProvider();
-    const client = await resolveCurrentClientOrThrow();
+    const client = await resolveCurrentClientOrThrowByUserId(userId);
     const linkedAccounts = await listBrokerAccountsByClientId(client.id);
     if (linkedAccounts.length === 0) {
       throw new OrdersServiceError("NO_LINKED_ACCOUNTS", "No linked broker account found. Complete onboarding first.", 404);

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ApiLogEntry } from "@/server/api-log/types";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
 
 const BUFFER_SIZE = 50;
 const EVENT_NAME = "api-log";
@@ -34,8 +35,16 @@ class ApiLogBus {
     return [...this.buffer];
   }
 
+  getBufferByIdentity(userId: string, sessionId: string): ApiLogEntry[] {
+    return this.buffer.filter((entry) => entry.userId === userId && entry.sessionId === sessionId);
+  }
+
   clearBuffer() {
     this.buffer = [];
+  }
+
+  clearBufferByIdentity(userId: string, sessionId: string) {
+    this.buffer = this.buffer.filter((entry) => !(entry.userId === userId && entry.sessionId === sessionId));
   }
 
   get subscriberCount(): number {
@@ -53,7 +62,15 @@ if (!globalObj[globalKey]) {
 const bus = globalObj[globalKey];
 
 export function emitApiLog(entry: ApiLogEntry) {
-  bus.emit(entry);
+  const scopedEntry = {
+    ...entry,
+    userId: entry.userId ?? getRequestUserId(),
+    sessionId: entry.sessionId ?? getRequestSessionId(),
+  };
+  if (!scopedEntry.userId || !scopedEntry.sessionId) {
+    return;
+  }
+  bus.emit(scopedEntry);
 }
 
 export function subscribeApiLog(listener: ApiLogListener) {
@@ -68,8 +85,16 @@ export function getApiLogBuffer(): ApiLogEntry[] {
   return bus.getBuffer();
 }
 
+export function getApiLogBufferByIdentity(userId: string, sessionId: string): ApiLogEntry[] {
+  return bus.getBufferByIdentity(userId, sessionId);
+}
+
 export function clearApiLogBuffer() {
   bus.clearBuffer();
+}
+
+export function clearApiLogBufferByIdentity(userId: string, sessionId: string) {
+  bus.clearBufferByIdentity(userId, sessionId);
 }
 
 export function getApiLogSubscriberCount(): number {

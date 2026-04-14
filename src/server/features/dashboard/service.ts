@@ -1,6 +1,6 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import { getCurrentPartyId, listLinkedBrokerAccounts } from "@/server/features/dashboard/repository";
-import {
+import type {
   DashboardAccountSnapshot,
   DashboardAccountsResult,
   DashboardResult,
@@ -154,10 +154,10 @@ function accountTypeMatchesAssetClass(accountType: string, assetClass: string | 
   return true;
 }
 
-async function getLinkedAccountsOrThrow() {
+async function getLinkedAccountsOrThrow(userId: string) {
   const harborProvider = getHarborProvider();
-  const partyId = await getCurrentPartyId();
-  const linkedAccount = await listLinkedBrokerAccounts();
+  const partyId = await getCurrentPartyId(userId);
+  const linkedAccount = await listLinkedBrokerAccounts(userId);
   if (linkedAccount.length === 0) {
     throw new DashboardServiceError(
       "NO_LINKED_ACCOUNTS",
@@ -171,8 +171,8 @@ async function getLinkedAccountsOrThrow() {
   return { harborProvider, linkedAccount, partyId };
 }
 
-export async function getDashboardSnapshot(): Promise<DashboardResult> {
-  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow();
+export async function getDashboardSnapshot(userId: string): Promise<DashboardResult> {
+  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow(userId);
 
   try {
     const partyResponse = await harborProvider.fetchBalanceByPartyId(partyId);
@@ -247,8 +247,11 @@ export async function getDashboardSnapshot(): Promise<DashboardResult> {
   }
 }
 
-export async function getDashboardAccountBalances(filters?: GetBalancesFilters): Promise<DashboardAccountsResult> {
-  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow();
+export async function getDashboardAccountBalances(
+  userId: string,
+  filters?: GetBalancesFilters,
+): Promise<DashboardAccountsResult> {
+  const { harborProvider, linkedAccount, partyId } = await getLinkedAccountsOrThrow(userId);
 
   try {
     const scope = filters?.scope === "account" ? "account" : "party";
@@ -291,8 +294,8 @@ export async function getDashboardAccountBalances(filters?: GetBalancesFilters):
   }
 }
 
-export async function getBalancesSnapshot(filters?: GetBalancesFilters): Promise<LegacyBalancesResult> {
-  const accountDetails = await getDashboardAccountBalances(filters);
+export async function getBalancesSnapshot(userId: string, filters?: GetBalancesFilters): Promise<LegacyBalancesResult> {
+  const accountDetails = await getDashboardAccountBalances(userId, filters);
   return {
     aggregated: buildAggregate(accountDetails.accounts),
     accounts: accountDetails.accounts,

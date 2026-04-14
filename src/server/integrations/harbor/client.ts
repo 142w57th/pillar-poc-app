@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { emitApiLog } from "@/server/api-log/event-bus";
 import { getHarborAccessToken } from "@/server/integrations/harbor/auth";
 import { getHarborConfig } from "@/server/integrations/harbor/config";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
 
 function parseRequestBody(init?: RequestInit): unknown {
   if (!init?.body) return undefined;
@@ -18,6 +19,8 @@ function parseRequestBody(init?: RequestInit): unknown {
 
 export async function harborFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const config = getHarborConfig();
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
   const token = await getHarborAccessToken();
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -53,6 +56,8 @@ export async function harborFetch<T>(path: string, init?: RequestInit): Promise<
 
     emitApiLog({
       id: randomUUID(),
+      userId: requestUserId,
+      sessionId: requestSessionId,
       timestamp: Date.now(),
       method: method as "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
       path: resolvedPath,

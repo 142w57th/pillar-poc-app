@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
-export type ThemeId = "light" | "dark" | "ocean" | "sunset";
+export type ThemeId = "light" | "dark" | "ocean" | "sunset" | "draftkings";
 
 type ThemeOption = {
   id: ThemeId;
@@ -43,6 +43,12 @@ const THEME_OPTIONS: ThemeOption[] = [
     name: "Sunset",
     description: "Warm amber-rose palette with softer contrast.",
     previewColors: ["#1f1611", "#fde7d7", "#f59e0b"],
+  },
+  {
+    id: "draftkings",
+    name: "DraftKings",
+    description: "Brand-inspired noir base with electric green highlights.",
+    previewColors: ["#111111", "#9AE200", "#FF890B"],
   },
 ];
 

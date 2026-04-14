@@ -55,7 +55,7 @@ function validateClientId(clientId: string) {
 }
 
 function resolveProviderId() {
-  return process.env.HARBOR_PROVIDER?.trim().toLowerCase() === "real" ? "harbor" : "mock";  
+  return process.env.HARBOR_PROVIDER?.trim().toLowerCase() === "real" ? "harbor" : "mock";
 }
 
 function isNoPaymentAccountsFoundError(message: string) {
@@ -216,16 +216,16 @@ export async function createPaymentAccount(input: CreatePaymentAccountInput): Pr
     throw new PaymentsServiceError("PAYMENT_ACCOUNT_CREATE_FAILED", message, 502);
   }
 }
-async function resolveCurrentClientOrThrow() {
-  const client = await getCurrentClient();
+async function resolveCurrentClientOrThrow(userId: string) {
+  const client = await getCurrentClient(userId);
   if (!client) {
     throw new PaymentsServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
   }
   return client;
 }
 
-export async function getDestinationAccounts(): Promise<DestinationAccountsResult> {
-  const client = await resolveCurrentClientOrThrow();
+export async function getDestinationAccounts(userId: string): Promise<DestinationAccountsResult> {
+  const client = await resolveCurrentClientOrThrow(userId);
   const linkedAccounts = await listBrokerAccountsByClientId(client.id);
 
   const accounts = linkedAccounts.map((account) => ({
@@ -244,8 +244,8 @@ export async function getDestinationAccounts(): Promise<DestinationAccountsResul
   };
 }
 
-export async function submitDeposit(input: SubmitDepositInput): Promise<SubmitDepositResult> {
-  const client = await resolveCurrentClientOrThrow();
+export async function submitDeposit(userId: string, input: SubmitDepositInput): Promise<SubmitDepositResult> {
+  const client = await resolveCurrentClientOrThrow(userId);
   const direction = input.direction === "WITHDRAW" ? "WITHDRAW" : "DEPOSIT";
 
   if (!input.destinationAccountId) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useMemo, useState } from "react";
@@ -135,6 +135,7 @@ function toCryptoBaseAsset(symbol: string) {
 
 function SellPageContent() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const symbolFromUrl = searchParams.get("symbol")?.trim() ?? "";
   const selectedAssetClassFromUrl = toOrderAssetClass(
     searchParams.get("assetClass"),
@@ -307,6 +308,12 @@ function SellPageContent() {
         orderId: response.data.order.orderId,
         status: orderStatus,
       });
+
+      void queryClient.invalidateQueries({ queryKey: ["orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["positions"] });
+      void queryClient.invalidateQueries({ queryKey: ["positions-sell"] });
+      void queryClient.invalidateQueries({ queryKey: ["holdings-live-quotes"] });
+      void queryClient.invalidateQueries({ queryKey: ["balances-buying-power"] });
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Order submission failed.";

@@ -16,6 +16,7 @@ import type {
 import type { HarborCreateAccountInput } from "@/server/integrations/harbor/accounts";
 import type { HarborCreatePartyInput } from "@/server/integrations/harbor/parties";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
 
 type EndpointMapping = {
   method: HttpMethod;
@@ -130,9 +131,8 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
 };
 
-function randomDelay(): Promise<number> {
-  const ms = Math.floor(Math.random() * 250) + 100;
-  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+function simulatedLatencyMs() {
+  return Math.floor(Math.random() * 250) + 100;
 }
 
 function resolveRequestBody(methodName: string, args: unknown[]): unknown {
@@ -157,21 +157,26 @@ function resolvePath(mapping: EndpointMapping, args: unknown[]): string {
   return mapping.path;
 }
 
-let hasEmittedAuthForSession = false;
+const emittedAuthByUser = new Set<string>();
 
-async function emitMockAuthEvent() {
-  if (hasEmittedAuthForSession) return;
-  hasEmittedAuthForSession = true;
+function emitMockAuthEvent() {
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
+  const userKey = requestUserId && requestSessionId ? `${requestUserId}:${requestSessionId}` : "__anonymous__";
+  if (emittedAuthByUser.has(userKey)) return;
+  emittedAuthByUser.add(userKey);
 
-  const delay = await randomDelay();
+  const durationMs = simulatedLatencyMs();
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: "POST",
     path: "/v1/auth/token",
     description: "Authenticate with OAuth 2.0 client credentials",
     status: 200,
-    durationMs: delay,
+    durationMs,
     requestBody: { grant_type: "client_credentials" },
     responseBody: {
       access_token: "eyJhbGci0iJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIi...mock-signature",
@@ -184,78 +189,78 @@ async function emitMockAuthEvent() {
 export function createLoggedHarborProvider(inner: HarborProvider): HarborProvider {
   return {
     async createParty(input: HarborCreatePartyInput) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("createParty", [input], () => inner.createParty(input));
     },
 
     async createAccount(input: HarborCreateAccountInput) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("createAccount", [input], () => inner.createAccount(input));
     },
 
     async fetchAccountTemplates() {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchAccountTemplates", [], () => inner.fetchAccountTemplates());
     },
 
     async fetchBalanceByAccountId(accountId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchBalanceByAccountId", [accountId], () =>
         inner.fetchBalanceByAccountId(accountId),
       );
     },
 
     async fetchBalanceByPartyId(partyId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchBalanceByPartyId", [partyId], () =>
         inner.fetchBalanceByPartyId(partyId),
       );
     },
 
     async fetchInstruments(input?: FetchHarborInstrumentsInput) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchInstruments", [input], () => inner.fetchInstruments(input));
     },
 
     async submitOrder(input: TradeOrderSubmitRequest) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("submitOrder", [input], () => inner.submitOrder(input));
     },
 
     async fetchOrders(input) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchOrders", [input], () => inner.fetchOrders(input));
     },
 
     async fetchPaymentInstructions() {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchPaymentInstructions", [], () => inner.fetchPaymentInstructions());
     },
     async fetchPaymentAccounts(input: HarborGetPaymentAccountsInput) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchPaymentAccounts", [input], () => inner.fetchPaymentAccounts(input));
     },
     async createPaymentAccount(input: HarborCreatePaymentAccountInput) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("createPaymentAccount", [input], () => inner.createPaymentAccount(input));
     },
     async submitDeposit(input: HarborSubmitDepositRequest) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("submitDeposit", [input], () => inner.submitDeposit(input));
     },
 
     async fetchPositions(accountId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchPositions", [accountId], () => inner.fetchPositions(accountId));
     },
 
     async fetchPositionsByParty(partyId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchPositionsByParty", [partyId], () => inner.fetchPositionsByParty(partyId));
     },
 
     async fetchQuote(symbol: string, options?: FetchHarborQuoteOptions) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchQuote", [symbol, options], () => inner.fetchQuote(symbol, options));
     },
   };
@@ -268,20 +273,24 @@ async function loggedCall<T>(
 ): Promise<T> {
   const mapping = ENDPOINT_MAP[methodName];
   if (!mapping) return execute();
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
 
-  const delay = await randomDelay();
+  const simulatedDuration = simulatedLatencyMs();
   const start = performance.now();
   const result = await execute();
   const actualDuration = Math.round(performance.now() - start);
 
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: mapping.method,
     path: resolvePath(mapping, args),
     description: mapping.description,
     status: 200,
-    durationMs: delay + actualDuration,
+    durationMs: simulatedDuration + actualDuration,
     requestBody: resolveRequestBody(methodName, args),
     responseBody: result,
   });
