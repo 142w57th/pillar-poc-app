@@ -14,7 +14,12 @@ export class QuotesServiceError extends Error {
   }
 }
 
-export async function getQuote(symbol: string): Promise<QuoteResult> {
+type GetQuoteOptions = {
+  assetClass?: string;
+  includeExtendedHours?: boolean;
+};
+
+export async function getQuote(symbol: string, options?: GetQuoteOptions): Promise<QuoteResult> {
   if (!symbol) {
     throw new QuotesServiceError("QUOTE_NOT_FOUND", "Symbol is required.", 400);
   }
@@ -22,7 +27,7 @@ export async function getQuote(symbol: string): Promise<QuoteResult> {
   const harborProvider = getHarborProvider();
 
   try {
-    const response = await harborProvider.fetchQuote(symbol);
+    const response = await harborProvider.fetchQuote(symbol, options);
 
     return {
       quote: response.quote,

@@ -8,12 +8,10 @@ import { apiFetch } from "@/lib/api-client";
 import type {
   ApiResponse,
   DestinationAccountsPayload,
-  PaymentInstructionsPayload,
+  PaymentAccountsPayload,
   SubmitDepositPayload,
   SubmitDepositRequestPayload,
 } from "@/types/api";
-
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
 
 function parseAmount(value: string) {
   const parsed = Number(value.replace(/[^0-9.]/g, ""));
@@ -21,6 +19,17 @@ function parseAmount(value: string) {
     return 0;
   }
   return parsed;
+}
+
+function sanitizeAmountInput(value: string) {
+  const normalized = value.replace(/[^0-9.]/g, "");
+  const firstDotIndex = normalized.indexOf(".");
+  if (firstDotIndex === -1) {
+    return normalized;
+  }
+  const beforeDot = normalized.slice(0, firstDotIndex + 1);
+  const afterDot = normalized.slice(firstDotIndex + 1).replace(/\./g, "");
+  return `${beforeDot}${afterDot}`;
 }
 
 function formatCurrency(value: number) {
@@ -34,6 +43,7 @@ function formatCurrency(value: number) {
 
 export default function DepositPage() {
   const [destinationAccountId, setDestinationAccountId] = useState("");
+  const [sourcePaymentAccountId, setSourcePaymentAccountId] = useState("");
   const [amountInput, setAmountInput] = useState("");
   const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
   const [submittedAmount, setSubmittedAmount] = useState(0);
@@ -43,15 +53,13 @@ export default function DepositPage() {
   const amountUsd = useMemo(() => parseAmount(amountInput), [amountInput]);
 
   const {
-    data: instructionsData,
-    isLoading: isInstructionsLoading,
-    isError: isInstructionsError,
+    data: paymentAccountsData,
+    isLoading: isPaymentAccountsLoading,
+    isError: isPaymentAccountsError,
   } = useQuery({
-    queryKey: ["payment-instructions"],
+    queryKey: ["payment-accounts"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<PaymentInstructionsPayload>>(
-        "/api/v1/payments/payment-instructions",
-      );
+      const response = await apiFetch<ApiResponse<PaymentAccountsPayload>>("/api/v1/payments/payment-accounts?type=BANK_ACCOUNT");
       if (!response.success) {
         throw new Error(response.error.message);
       }
@@ -65,11 +73,9 @@ export default function DepositPage() {
     isLoading: isDestinationLoading,
     isError: isDestinationError,
   } = useQuery({
-    queryKey: ["deposit-destination-accounts", DASHBOARD_USER_ID],
+    queryKey: ["deposit-destination-accounts"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DestinationAccountsPayload>>(
-        `/api/v1/payments/destination-accounts?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<DestinationAccountsPayload>>("/api/v1/payments/destination-accounts");
       if (!response.success) {
         throw new Error(response.error.message);
       }
@@ -104,15 +110,23 @@ export default function DepositPage() {
     },
   });
 
-  const paymentInstructionAccounts = instructionsData?.accounts ?? [];
-  const defaultSourceInstructionId = paymentInstructionAccounts[0]?.instructionId ?? "";
+  const paymentAccounts = paymentAccountsData?.data ?? [];
+  const linkedPaymentAccounts = paymentAccounts.filter((account) => account.status === "LINKED");
   const destinationAccounts = destinationData?.accounts ?? [];
-  const hasInstructionAccounts = paymentInstructionAccounts.length > 0;
+  const hasInstructionAccounts = linkedPaymentAccounts.length > 0;
   const hasDestinationAccounts = destinationAccounts.length > 0;
+  const canShowDepositForm = hasInstructionAccounts;
+  const isAnyDataLoading = isPaymentAccountsLoading || isDestinationLoading;
+  const effectiveSourcePaymentAccountId =
+    linkedPaymentAccounts.find((account) => account.paymentAccountId === sourcePaymentAccountId)?.paymentAccountId ??
+    linkedPaymentAccounts[0]?.paymentAccountId ??
+    "";
 
   const isAmountInvalid = amountUsd <= 0;
+  const shouldShowAmountError = amountInput.trim().length > 0 && isAmountInvalid;
   const isSubmitDisabled =
     !hasInstructionAccounts ||
+    !effectiveSourcePaymentAccountId ||
     !hasDestinationAccounts ||
     !destinationAccountId ||
     isAmountInvalid ||
@@ -128,8 +142,7 @@ export default function DepositPage() {
     }
 
     depositMutation.mutate({
-      userId: DASHBOARD_USER_ID,
-      sourceInstructionId: defaultSourceInstructionId,
+      sourcePaymentAccountId: effectiveSourcePaymentAccountId,
       destinationAccountId,
       amountUsd,
     });
@@ -196,120 +209,157 @@ export default function DepositPage() {
 
       <section className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
         <h2 className="text-app-primary text-xl font-semibold">Deposit</h2>
-        <p className="text-app-secondary mt-1 text-sm">Move money into your account using payment instructions.</p>
+        <p className="text-app-secondary mt-1 text-sm">Move money into your account using payment accounts.</p>
+        {canShowDepositForm ? (
+          <Link
+            href="/deposit/add-bank-account"
+            className="border-app bg-surface-2 text-app-primary mt-3 inline-flex h-10 items-center justify-center rounded-lg border px-4 text-sm font-semibold transition hover:opacity-90"
+          >
+            Add Bank Account
+          </Link>
+        ) : null}
 
-        <div className="mt-4">
-          <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Transfer from</p>
-          {isInstructionsLoading ? (
-            <p className="text-app-secondary mt-2 text-sm">Loading payment instruction accounts...</p>
-          ) : null}
-          {isInstructionsError ? (
-            <p className="text-negative mt-2 text-sm">Unable to load payment instruction accounts.</p>
-          ) : null}
+        {isPaymentAccountsLoading || isPaymentAccountsError || hasInstructionAccounts ? (
+          <div className="mt-4">
+            <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Transfer from</p>
+            {isPaymentAccountsLoading ? (
+              <p className="text-app-secondary mt-2 text-sm">Loading payment accounts...</p>
+            ) : null}
+            {isPaymentAccountsError ? (
+              <p className="text-negative mt-2 text-sm">Unable to load payment accounts.</p>
+            ) : null}
 
-          {!isInstructionsLoading && !isInstructionsError && !hasInstructionAccounts ? (
+            {hasInstructionAccounts ? (
+              <div className="mt-2 space-y-2">
+                {linkedPaymentAccounts.map((account) => (
+                  <article
+                    key={account.paymentAccountId}
+                    onClick={() => setSourcePaymentAccountId(account.paymentAccountId)}
+                    className={`cursor-pointer rounded-xl border p-3 transition ${
+                      effectiveSourcePaymentAccountId === account.paymentAccountId
+                        ? "border-app-accent bg-surface-3"
+                        : "border-app bg-surface-2"
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSourcePaymentAccountId(account.paymentAccountId);
+                      }
+                    }}
+                  >
+                    <p className="text-app-primary text-sm font-semibold">{account.details.bankName ?? "Bank account"}</p>
+                    <p className="text-app-secondary mt-1 text-xs">Status: {account.status.replaceAll("_", " ")}</p>
+                    <p className="text-app-muted mt-1 text-xs">Payment account ID: {account.paymentAccountId}</p>
+                    <p className="text-app-muted mt-1 text-xs">
+                      {effectiveSourcePaymentAccountId === account.paymentAccountId ? "Selected" : "Tap to select"}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      {canShowDepositForm ? (
+        <form
+          onSubmit={handleSubmit}
+          className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5"
+        >
+          <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Deposit to</p>
+
+          {isDestinationLoading ? (
+            <p className="text-app-secondary mt-2 text-sm">Loading destination accounts...</p>
+          ) : null}
+          {isDestinationError ? (
+            <p className="text-negative mt-2 text-sm">Unable to load destination accounts.</p>
+          ) : null}
+          {!isDestinationLoading && !isDestinationError && !hasDestinationAccounts ? (
             <p className="text-app-secondary mt-2 text-sm">
-              No payment instruction accounts are available right now.
+              No destination account found. Complete onboarding to enable deposits.
             </p>
           ) : null}
 
-          {hasInstructionAccounts ? (
-            <div className="mt-2 space-y-2">
-              {paymentInstructionAccounts.map((account) => (
-                <article key={account.instructionId} className="border-app bg-surface-2 rounded-xl border p-3">
-                  <p className="text-app-primary text-sm font-semibold">{account.bankName}</p>
-                  <p className="text-app-secondary mt-1 text-xs">{account.accountHolderName}</p>
-                  <p className="text-app-muted mt-1 text-xs">
-                    {account.accountType.toUpperCase()} • Routing ••••{account.routingNumberLast4} • Account ••••
-                    {account.accountNumberLast4}
-                  </p>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <form
-        onSubmit={handleSubmit}
-        className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5"
-      >
-        <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Deposit to</p>
-
-        {isDestinationLoading ? (
-          <p className="text-app-secondary mt-2 text-sm">Loading destination accounts...</p>
-        ) : null}
-        {isDestinationError ? (
-          <p className="text-negative mt-2 text-sm">Unable to load destination accounts.</p>
-        ) : null}
-
-        <label htmlFor="destination-account" className="text-app-primary mt-2 block text-sm font-semibold">
-          Account
-        </label>
-        <select
-          id="destination-account"
-          value={destinationAccountId}
-          onChange={(event) => setDestinationAccountId(event.target.value)}
-          className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
-          disabled={!hasDestinationAccounts}
-        >
-          <option value="">Select destination account</option>
-          {destinationAccounts.map((account) => (
-            <option key={account.externalAccountId} value={account.externalAccountId}>
-              {account.label}
-            </option>
-          ))}
-        </select>
-
-        <div className="mt-4">
-          <label htmlFor="deposit-amount" className="text-app-primary block text-sm font-semibold">
-            Deposit amount
+          <label htmlFor="destination-account" className="text-app-primary mt-2 block text-sm font-semibold">
+            Account
           </label>
-          <div className={`mt-2 flex items-center rounded-lg border px-3 ${isAmountInvalid ? "border-negative" : "border-app"}`}>
-            <span className="text-app-secondary mr-1 text-lg font-semibold">$</span>
-            <input
-              id="deposit-amount"
-              type="text"
-              inputMode="decimal"
-              value={amountInput}
-              onChange={(event) => setAmountInput(event.target.value)}
-              placeholder="0.00"
-              className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
-            />
+          <select
+            id="destination-account"
+            value={destinationAccountId}
+            onChange={(event) => setDestinationAccountId(event.target.value)}
+            className="border-app bg-surface-2 text-app-primary mt-2 h-11 w-full rounded-lg border px-3 text-sm outline-none"
+            disabled={!hasDestinationAccounts}
+          >
+            <option value="">Select destination account</option>
+            {destinationAccounts.map((account) => (
+              <option key={account.externalAccountId} value={account.externalAccountId}>
+                {account.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="mt-4">
+            <label htmlFor="deposit-amount" className="text-app-primary block text-sm font-semibold">
+              Deposit amount
+            </label>
+            <div className={`mt-2 flex items-center rounded-lg border px-3 ${shouldShowAmountError ? "border-negative" : "border-app"}`}>
+              <span className="text-app-secondary mr-1 text-lg font-semibold">$</span>
+              <input
+                id="deposit-amount"
+                type="text"
+                inputMode="decimal"
+                value={amountInput}
+                onChange={(event) => setAmountInput(sanitizeAmountInput(event.target.value))}
+                placeholder="0.00"
+                className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
+              />
+            </div>
+            {shouldShowAmountError ? (
+              <p className="text-negative mt-1.5 text-xs">Enter an amount greater than $0.00.</p>
+            ) : null}
           </div>
-          {isAmountInvalid ? (
-            <p className="text-negative mt-1.5 text-xs">Enter an amount greater than $0.00.</p>
-          ) : null}
-        </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitDisabled}
-          className={`mt-5 inline-flex w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-semibold transition ${
-            isSubmitDisabled
-              ? "bg-app-accent text-app-accent-contrast cursor-not-allowed opacity-40"
-              : "bg-app-accent text-app-accent-contrast hover:opacity-90"
-          }`}
-        >
-          {depositMutation.isPending ? "Submitting..." : "Submit Deposit"}
-        </button>
-
-        {lastResultMessage ? (
-          <p
-            className={`mt-2 text-xs ${
-              lastResultTone === "positive"
-                ? "text-positive"
-                : lastResultTone === "negative"
-                  ? "text-negative"
-                  : "text-app-secondary"
+          <button
+            type="submit"
+            disabled={isSubmitDisabled}
+            className={`mt-5 inline-flex w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-semibold transition ${
+              isSubmitDisabled
+                ? "bg-app-accent text-app-accent-contrast cursor-not-allowed opacity-40"
+                : "bg-app-accent text-app-accent-contrast hover:opacity-90"
             }`}
           >
-            {lastResultMessage}
-          </p>
-        ) : null}
+            {depositMutation.isPending ? "Submitting..." : "Submit Deposit"}
+          </button>
 
-        <p className="text-app-muted mt-3 text-xs">Bank account linking flow will be added in a later phase.</p>
-      </form>
+          {lastResultMessage ? (
+            <p
+              className={`mt-2 text-xs ${
+                lastResultTone === "positive"
+                  ? "text-positive"
+                  : lastResultTone === "negative"
+                    ? "text-negative"
+                    : "text-app-secondary"
+              }`}
+            >
+              {lastResultMessage}
+            </p>
+          ) : null}
+        </form>
+      ) : !isAnyDataLoading ? (
+        <section className="border-app bg-surface-1 rounded-2xl border p-4 shadow-sm @md:p-5">
+          <p className="text-app-secondary mt-1 text-sm">
+            Link a bank account first, then submit your deposit.
+          </p>
+          <Link
+            href="/deposit/add-bank-account"
+            className="bg-app-accent text-app-accent-contrast mt-4 inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold transition hover:opacity-90"
+          >
+            Link Bank Account
+          </Link>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,139 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - temp-deployments
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "20"
+  ECR_REPOSITORY: wts-systems/fe/pillar-poc-app
+  AWS_ROLE_ARN: arn:aws:iam::767397818933:role/github-actions/GitHubPillarPocAppOIDC
+
+jobs:
+  build:
+    name: Build and Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --include=optional
+
+      - name: Install Linux native CSS bindings for runner
+        run: |
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "x86_64" ]; then NATIVE_ARCH="x64";
+          elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then NATIVE_ARCH="arm64";
+          else echo "Unsupported architecture: $ARCH"; exit 1; fi
+
+          if ldd --version 2>/dev/null | grep -qi "musl"; then LIBC="musl"; else LIBC="gnu"; fi
+
+          npm install --no-save \
+            "lightningcss-linux-${NATIVE_ARCH}-${LIBC}@1.32.0" \
+            "@tailwindcss/oxide-linux-${NATIVE_ARCH}-${LIBC}@4.2.2"
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: .next/
+          retention-days: 1
+
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActionsSession
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set environment tag
+        id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "env_tag=prod" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/temp-deployments" ]]; then
+            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+      - name: Build and push image to Amazon ECR
+        id: build-and-push
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ENV_TAG: ${{ steps.set-env.outputs.env_tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          docker build --tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" .
+
+          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+
+          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-latest"
+          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$SHORT_COMMIT"
+          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA"
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-latest"
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$SHORT_COMMIT"
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+
+          echo "image_tag=$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Call Deploy PR workflow
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITOPS_TRIGGER_TOKEN }}
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: '${{ github.repository_owner }}',
+              repo: 'wts-eks-gitops',
+              workflow_id: 'update-image-tag.yaml',
+              ref: 'main',
+              inputs: {
+                dry_run: 'false',
+                environment: '${{ steps.set-env.outputs.env_tag }}',
+                application: 'pillar-poc-app',
+                tag: '${{ steps.build-and-push.outputs.image_tag }}',
+                caller: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+              }
+            })

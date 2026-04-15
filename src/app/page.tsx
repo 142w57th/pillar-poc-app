@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api-client";
-import { ApiResponse, DashboardAccountsPayload, DashboardPayload, OrdersPayload, PositionsPayload } from "@/types/api";
+import { toCanonicalAssetClassLabel } from "@/lib/account-asset-class";
+import { ApiResponse, DashboardPayload, OrdersPayload, PositionsPayload, QuotePayload } from "@/types/api";
 
 const ACCOUNT_TYPE_TAG_STYLES: Record<string, string> = {
   Equity: "tag-equity",
@@ -17,12 +18,11 @@ function getAccountTypeTagClass(accountType: string) {
   return ACCOUNT_TYPE_TAG_STYLES[accountType] ?? "tag-default";
 }
 
-const ALL_ASSET_CLASS_OPTION = "ALL";
-const ACCOUNT_ONBOARDING_ASSET_CLASSES = ["Equity", "Crypto", "Event Contract"] as const;
+const ALL_ASSET_CLASS_OPTION = "ALL"; 
+const ACCOUNT_ONBOARDING_ASSET_CLASSES = ["Equity", "Crypto"] as const;
 const ASSET_CLASS_CHIP_LABELS: Record<(typeof ACCOUNT_ONBOARDING_ASSET_CLASSES)[number], string> = {
   Equity: "Equity",
   Crypto: "Crypto",
-  "Event Contract": "EC",
 };
 
 function getAssetClassChipLabel(assetClass: string) {
@@ -37,12 +37,11 @@ function getAssetClassFilterLabel(option: string) {
   return getAssetClassChipLabel(option);
 }
 
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
-
 type HoldingPresentation = {
   title: string;
   leftPrimaryText: string;
   moveWindowLabel: string;
+  dayChangePercent: number;
   leftSecondaryText?: string;
   performanceLabel: string;
 };
@@ -50,6 +49,9 @@ type HoldingPresentation = {
 type DashboardSectionKey = "portfolio" | "holdings" | "orders";
 
 function formatAccountTypeLabel(value: string) {
+  const normalizedLabel = toCanonicalAssetClassLabel(value);
+  if (normalizedLabel) return normalizedLabel;
+
   return value
     .split("-")
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
@@ -111,37 +113,45 @@ function toCryptoPairLabel(symbol: string) {
   return symbol;
 }
 
-function formatEventSideLabel(side: "YES" | "NO" | undefined) {
-  return side ?? "YES";
+function toQuoteAssetClassParam(value: string) {
+  if (value === "Crypto") return "CRYPTO";
+  return "EQUITY";
 }
 
-function toHoldingPresentation(holding: PositionsPayload["positions"][number]): HoldingPresentation {
+function toHoldingPresentation(
+  holding: PositionsPayload["positions"][number],
+  liveQuote?: QuotePayload["quote"],
+): HoldingPresentation {
+  const livePrice = liveQuote?.price ?? holding.lastPrice;
+  const liveDayChangePercent = liveQuote?.dayChangePercent ?? holding.dayChangePercent;
+
   if (holding.assetClass === "Crypto") {
     return {
       title: toCryptoPairLabel(holding.symbol),
-      leftPrimaryText: formatCurrency(holding.lastPrice),
+      leftPrimaryText: formatCurrency(livePrice),
       moveWindowLabel: "24H",
+      dayChangePercent: liveDayChangePercent,
       performanceLabel: "P&L",
     };
   }
 
-  if (holding.assetClass === "Event Contract") {
-    const side = formatEventSideLabel(holding.eventSide);
-
-    return {
-      title: holding.symbol,
-      leftPrimaryText: `${side} @ ${formatCurrency(holding.lastPrice)}`,
-      moveWindowLabel: "1D",
-      performanceLabel: "P&L",
-    };
-  }
 
   return {
     title: holding.symbol,
-    leftPrimaryText: formatCurrency(holding.lastPrice),
+    leftPrimaryText: formatCurrency(livePrice),
     moveWindowLabel: "1D",
+    dayChangePercent: liveDayChangePercent,
     performanceLabel: "P&L",
   };
+}
+
+function SectionSpinner({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div className="border-app bg-surface-2 mt-3 flex items-center justify-center gap-2 rounded-xl border px-4 py-8">
+      <span className="border-app-secondary/40 border-t-app-secondary inline-block h-4 w-4 animate-spin rounded-full border-2" />
+      <span className="text-app-secondary text-sm">{label}</span>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -168,11 +178,9 @@ export default function Home() {
   };
 
   const { data: dashboardData, isLoading: isDashboardLoading, isError: isDashboardError } = useQuery({
-    queryKey: ["dashboard", DASHBOARD_USER_ID],
+    queryKey: ["dashboard"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardPayload>>(
-        `/api/v1/dashboard?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<DashboardPayload>>("/api/v1/dashboard");
 
       if (!response.success) {
         throw new Error(response.error.message);
@@ -187,61 +195,11 @@ export default function Home() {
     () => selectedAssetClasses.filter((assetClass) => assetClass !== ALL_ASSET_CLASS_OPTION),
     [selectedAssetClasses],
   );
-  const singleSelectedAccountType = selectedSpecificAssetClasses.length === 1 ? selectedSpecificAssetClasses[0] : null;
-  const shouldFetchSingleAccountDetail = shouldFetchDashboard && !!singleSelectedAccountType;
-  const shouldFetchAllAccountDetails =
-    shouldFetchDashboard && !singleSelectedAccountType && (isBalanceBreakdownOpen || selectedSpecificAssetClasses.length > 1);
-
-  const {
-    data: allAccountBalancesData,
-    isLoading: isAllAccountBalancesLoading,
-    isError: isAllAccountBalancesError,
-  } = useQuery({
-    queryKey: ["dashboard-account-balances", DASHBOARD_USER_ID],
-    queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardAccountsPayload>>(
-        `/api/v1/dashboard/accounts?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
-
-      if (!response.success) {
-        throw new Error(response.error.message);
-      }
-
-      return response.data;
-    },
-    enabled: shouldFetchAllAccountDetails,
-    staleTime: 60_000,
-  });
-
-  const {
-    data: singleAccountBalanceData,
-    isLoading: isSingleAccountBalanceLoading,
-    isError: isSingleAccountBalanceError,
-  } = useQuery({
-    queryKey: ["dashboard-account-balance-by-type", DASHBOARD_USER_ID, singleSelectedAccountType],
-    queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardAccountsPayload>>(
-        `/api/v1/dashboard/accounts/by-type?userId=${encodeURIComponent(DASHBOARD_USER_ID)}&accountType=${encodeURIComponent(
-          singleSelectedAccountType ?? "",
-        )}`,
-      );
-
-      if (!response.success) {
-        throw new Error(response.error.message);
-      }
-
-      return response.data;
-    },
-    enabled: shouldFetchSingleAccountDetail,
-    staleTime: 60_000,
-  });
 
   const { data: positionsData, isLoading: isPositionsLoading, isError: isPositionsError } = useQuery({
-    queryKey: ["positions", DASHBOARD_USER_ID],
+    queryKey: ["positions"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<PositionsPayload>>(
-        `/api/v1/positions?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<PositionsPayload>>("/api/v1/positions");
 
       if (!response.success) {
         throw new Error(response.error.message);
@@ -254,11 +212,9 @@ export default function Home() {
   });
 
   const { data: ordersData, isLoading: isOrdersLoading, isError: isOrdersError } = useQuery({
-    queryKey: ["orders", DASHBOARD_USER_ID],
+    queryKey: ["orders"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<OrdersPayload>>(
-        `/api/v1/orders?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<OrdersPayload>>("/api/v1/orders");
 
       if (!response.success) {
         throw new Error(response.error.message);
@@ -271,14 +227,6 @@ export default function Home() {
   });
 
   const holdings = useMemo(() => positionsData?.positions ?? [], [positionsData]);
-  const holdingCards = useMemo(
-    () =>
-      holdings.map((holding) => ({
-        holding,
-        presentation: toHoldingPresentation(holding),
-      })),
-    [holdings],
-  );
   const recentOrders = useMemo(() => ordersData?.orders ?? [], [ordersData]);
 
   const selectedFilterSet = useMemo(() => new Set(selectedAssetClasses), [selectedAssetClasses]);
@@ -309,27 +257,81 @@ export default function Home() {
     [assetClasses],
   );
 
+  const filteredHoldingsRaw = useMemo(
+    () => holdings.filter((holding) => activeAssetClasses.includes(holding.assetClass)),
+    [activeAssetClasses, holdings],
+  );
+
+  const holdingQuoteTargets = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          filteredHoldingsRaw.map((holding) => [
+            `${holding.symbol.toUpperCase()}::${holding.assetClass}`,
+            {
+              symbol: holding.symbol.toUpperCase(),
+              assetClass: holding.assetClass,
+            },
+          ]),
+        ).values(),
+      ),
+    [filteredHoldingsRaw],
+  );
+
+  const { data: holdingQuotesMap } = useQuery({
+    queryKey: ["holdings-live-quotes", holdingQuoteTargets],
+    queryFn: async () => {
+      const quotes = await Promise.all(
+        holdingQuoteTargets.map(async (target) => {
+          try {
+            const response = await apiFetch<ApiResponse<QuotePayload>>(
+              `/api/v1/quotes?symbol=${encodeURIComponent(target.symbol)}&assetClass=${encodeURIComponent(
+                toQuoteAssetClassParam(target.assetClass),
+              )}`,
+            );
+            if (!response.success) return null;
+            return {
+              key: `${target.symbol}::${target.assetClass}`,
+              quote: response.data.quote,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      return quotes.reduce<Record<string, QuotePayload["quote"]>>((acc, item) => {
+        if (!item) return acc;
+        acc[item.key] = item.quote;
+        return acc;
+      }, {});
+    },
+    enabled: shouldFetchPositions && holdingQuoteTargets.length > 0,
+    staleTime: 20_000,
+  });
+
   const filteredHoldings = useMemo(
-    () => holdingCards.filter(({ holding }) => activeAssetClasses.includes(holding.assetClass)),
-    [activeAssetClasses, holdingCards],
+    () =>
+      filteredHoldingsRaw.map((holding) => ({
+        holding,
+        presentation: toHoldingPresentation(
+          holding,
+          holdingQuotesMap?.[`${holding.symbol.toUpperCase()}::${holding.assetClass}`],
+        ),
+      })),
+    [filteredHoldingsRaw, holdingQuotesMap],
   );
 
   const filteredDashboardAccounts = useMemo(
     () =>
-      (singleSelectedAccountType ? singleAccountBalanceData?.accounts : allAccountBalancesData?.accounts)?.filter((account) =>
+      (dashboardData?.accounts ?? []).filter((account) =>
         activeAssetClasses.includes(formatAccountTypeLabel(account.accountType)),
       ) ?? [],
-    [activeAssetClasses, allAccountBalancesData?.accounts, singleAccountBalanceData?.accounts, singleSelectedAccountType],
+    [activeAssetClasses, dashboardData?.accounts],
   );
 
   const hasActiveAccountFilter = selectedSpecificAssetClasses.length > 0;
-  const shouldUseFilteredAccountDetails = !!singleSelectedAccountType || selectedSpecificAssetClasses.length > 1;
-  const isAccountDetailsLoading =
-    (shouldFetchAllAccountDetails && isAllAccountBalancesLoading) ||
-    (shouldFetchSingleAccountDetail && isSingleAccountBalanceLoading);
-  const isAccountDetailsError =
-    (shouldFetchAllAccountDetails && isAllAccountBalancesError) ||
-    (shouldFetchSingleAccountDetail && isSingleAccountBalanceError);
+  const shouldUseFilteredAccountDetails = hasActiveAccountFilter;
 
   const totalValue = useMemo(() => {
     if (dashboardData && !hasActiveAccountFilter) {
@@ -370,6 +372,7 @@ export default function Home() {
     }
     return 0;
   }, [dashboardData, filteredDashboardAccounts, hasActiveAccountFilter, shouldUseFilteredAccountDetails]);
+  const isPortfolioBalancesLoading = isDashboardLoading && !dashboardData;
 
   const handleAssetClassToggle = (option: string) => {
     setSelectedAssetClasses((current) => {
@@ -387,7 +390,7 @@ export default function Home() {
       }
 
       if (next.size === 0 || next.size === assetClasses.length) {
-        return [ALL_ASSET_CLASS_OPTION];
+        return next.size === 0 ? [ALL_ASSET_CLASS_OPTION] : Array.from(next);
       }
 
       return Array.from(next);
@@ -454,123 +457,119 @@ export default function Home() {
                       );
                     })}
                   </div>
-                ) : (
+                ) : isDashboardLoading ? null : (
                   <p className="text-app-secondary mt-2 text-sm">No account is opened yet.</p>
                 )}
               </div>
             </div>
 
-            {isDashboardLoading ? (
-              <p className="text-app-secondary mt-3 text-sm">Loading backend dashboard data...</p>
-            ) : null}
-
             {isDashboardError ? (
               <p className="text-negative mt-3 text-sm">Unable to load live dashboard data right now.</p>
             ) : null}
-            {hasActiveAccountFilter && isAccountDetailsLoading ? (
-              <p className="text-app-secondary mt-3 text-sm">Refreshing selected account balance...</p>
-            ) : null}
 
-            <div className="mt-4">
-              <article className="border-app bg-surface-2 rounded-xl border p-4">
-                <p className="text-app-muted text-xs uppercase tracking-[0.14em]">Total Value</p>
-                <p className="text-app-primary mt-2 text-xl font-semibold">{formatCurrency(totalValue)}</p>
-                <p className={`mt-1 text-sm ${dailyMove < 0 ? "text-negative" : "text-positive"}`}>
-                  {formatSignedCurrency(dailyMove)} {dashboardData ? "unrealized P/L" : "today"}
-                </p>
+            {isPortfolioBalancesLoading ? (
+              <SectionSpinner label="Loading portfolio..." />
+            ) : (
+              <>
+                <div className="mt-4">
+                  <article className="border-app bg-surface-2 rounded-xl border p-4">
+                    <p className="text-app-muted text-xs uppercase tracking-[0.14em]">Total Value</p>
+                    <p className="text-app-primary mt-2 text-xl font-semibold">{formatCurrency(totalValue)}</p>
+                    <p className={`mt-2 flex items-center gap-2 text-sm ${dailyMove < 0 ? "text-negative" : "text-positive"}`}>
+                      <span className="font-semibold">{formatSignedCurrency(dailyMove)}</span>
+                      <span className="text-app-muted text-xs uppercase tracking-[0.08em]">
+                        {dashboardData ? "Unrealized P/L" : "Today"}
+                      </span>
+                    </p>
 
-                {hasOpenedAccounts ? (
-                  <div className="border-app-soft mt-3 border-t pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setIsBalanceBreakdownOpen((current) => !current)}
-                      className="text-app-secondary flex w-full items-center justify-between text-sm font-medium"
-                      aria-expanded={isBalanceBreakdownOpen}
-                    >
-                      <span>Account balance breakdown</span>
-                      <span>{isBalanceBreakdownOpen ? "Hide" : "Show"}</span>
-                    </button>
+                    {hasOpenedAccounts ? (
+                      <div className="border-app-soft mt-3 border-t pt-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsBalanceBreakdownOpen((current) => !current)}
+                          className="text-app-secondary flex w-full items-center justify-between text-sm font-medium"
+                          aria-expanded={isBalanceBreakdownOpen}
+                        >
+                          <span>Account balance breakdown</span>
+                          <span>{isBalanceBreakdownOpen ? "Hide" : "Show"}</span>
+                        </button>
 
-                    {isBalanceBreakdownOpen ? (
-                      <div className="mt-3 flex flex-col gap-2">
-                        {isAccountDetailsLoading ? (
-                          <p className="text-app-secondary text-sm">Loading account balances...</p>
+                        {isBalanceBreakdownOpen ? (
+                          <div className="mt-3 flex flex-col gap-2">
+                            {filteredDashboardAccounts.length === 0 ? (
+                              <p className="text-app-secondary text-sm">Select an account type to load its balance.</p>
+                            ) : null}
+
+                            {filteredDashboardAccounts.map((account) => {
+                              const label = formatAccountTypeLabel(account.accountType);
+                              const pnl = account.totalMarketValue - account.totalCostBasis;
+
+                              return (
+                                <div key={account.accountId} className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(label)}`}
+                                    >
+                                      {getAssetClassChipLabel(label)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-baseline gap-2">
+                                    <span className={`text-xs ${pnl < 0 ? "text-negative" : "text-positive"}`}>
+                                      {formatSignedCurrency(pnl)}
+                                    </span>
+                                    <span className="text-app-primary text-sm font-semibold">
+                                      {formatCurrency(account.accountValue)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         ) : null}
-                        {isAccountDetailsError ? (
-                          <p className="text-negative text-sm">Unable to load account balances right now.</p>
-                        ) : null}
-                        {!isAccountDetailsLoading && !isAccountDetailsError && filteredDashboardAccounts.length === 0 ? (
-                          <p className="text-app-secondary text-sm">Select an account type to load its balance.</p>
-                        ) : null}
-
-                        {filteredDashboardAccounts.map((account) => {
-                          const label = formatAccountTypeLabel(account.accountType);
-                          const pnl = account.totalMarketValue - account.totalCostBasis;
-
-                          return (
-                            <div key={account.accountId} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(label)}`}
-                                >
-                                  {getAssetClassChipLabel(label)}
-                                </span>
-                              </div>
-                              <div className="flex items-baseline gap-2">
-                                <span className={`text-xs ${pnl < 0 ? "text-negative" : "text-positive"}`}>
-                                  {formatSignedCurrency(pnl)}
-                                </span>
-                                <span className="text-app-primary text-sm font-semibold">
-                                  {formatCurrency(account.accountValue)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
                       </div>
                     ) : null}
+                  </article>
+                </div>
+
+                <article className="border-app bg-surface-2 mt-3 rounded-xl border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Buying Power</p>
+                    <p className="text-app-primary text-sm font-semibold">{formatCurrency(buyingPower)}</p>
+                  </div>
+                  <div className="border-app-soft mt-3 flex items-center justify-between gap-3 border-t pt-3">
+                    <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Available for Withdrawal</p>
+                    <p className="text-app-primary text-sm font-semibold">{formatCurrency(availableForWithdrawal)}</p>
+                  </div>
+                  <Link
+                    href="/transfer"
+                    className="border-app bg-surface-1 text-app-primary mt-4 inline-flex w-full items-center justify-center rounded-xl border px-3 py-2.5 text-sm font-semibold transition hover:opacity-90"
+                  >
+                    + Add funds
+                  </Link>
+                </article>
+
+                {showAccountOnboardingCta ? (
+                  <div className="border-app bg-surface-2 mt-4 flex flex-col gap-3 rounded-xl border p-4 @md:flex-row @md:items-center @md:justify-between">
+                    <div>
+                      <p className="text-app-primary text-sm font-semibold">
+                        {hasOpenedAccounts ? "Open another account type." : "Open your first account."}
+                      </p>
+                      <p className="text-app-secondary mt-1 text-sm">
+                        {hasOpenedAccounts
+                          ? `Account onboarding is still pending for ${missingAccountAssetClasses.join(", ")}.`
+                          : "Start account onboarding to activate an account type."}
+                      </p>
+                    </div>
+                    <Link
+                      href="/onboarding"
+                      className="bg-app-accent text-app-accent-contrast inline-flex shrink-0 items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition hover:opacity-90"
+                    >
+                      {hasOpenedAccounts ? "Continue account onboarding" : "Start account onboarding"}
+                    </Link>
                   </div>
                 ) : null}
-              </article>
-            </div>
-
-            <article className="border-app bg-surface-2 mt-3 rounded-xl border p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Buying Power</p>
-                <p className="text-app-primary text-sm font-semibold">{formatCurrency(buyingPower)}</p>
-              </div>
-              <div className="border-app-soft mt-3 flex items-center justify-between gap-3 border-t pt-3">
-                <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Available for Withdrawal</p>
-                <p className="text-app-primary text-sm font-semibold">{formatCurrency(availableForWithdrawal)}</p>
-              </div>
-              <Link
-                href="/transfer"
-                className="border-app bg-surface-1 text-app-primary mt-4 inline-flex w-full items-center justify-center rounded-xl border px-3 py-2.5 text-sm font-semibold transition hover:opacity-90"
-              >
-                + Add funds
-              </Link>
-            </article>
-
-            {showAccountOnboardingCta ? (
-              <div className="border-app bg-surface-2 mt-4 flex flex-col gap-3 rounded-xl border p-4 @md:flex-row @md:items-center @md:justify-between">
-                <div>
-                  <p className="text-app-primary text-sm font-semibold">
-                    {hasOpenedAccounts ? "Open another account type." : "Open your first account."}
-                  </p>
-                  <p className="text-app-secondary mt-1 text-sm">
-                    {hasOpenedAccounts
-                      ? `Account onboarding is still pending for ${missingAccountAssetClasses.join(", ")}.`
-                      : "Start account onboarding to activate an account type."}
-                  </p>
-                </div>
-                <Link
-                  href="/onboarding"
-                  className="bg-app-accent text-app-accent-contrast inline-flex shrink-0 items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition hover:opacity-90"
-                >
-                  {hasOpenedAccounts ? "Continue account onboarding" : "Start account onboarding"}
-                </Link>
-              </div>
-            ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </section>
@@ -600,72 +599,69 @@ export default function Home() {
 
         {isHoldingsOpen ? (
           <div id="dashboard-section-holdings" className="mt-4">
-            {isPositionsLoading ? (
-              <p className="text-app-secondary mt-1 text-sm">Loading positions...</p>
-            ) : null}
-
             {isPositionsError ? (
               <p className="text-negative mt-1 text-sm">Unable to load holdings data right now.</p>
             ) : null}
 
-            <div className="border-app bg-surface-1 mt-3 rounded-xl border">
-              {filteredHoldings.length > 0 ? (
-                filteredHoldings.map(({ holding, presentation }, index) => (
-                  <article
-                    key={`${holding.symbol}-${holding.assetClass}`}
-                    className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
+            {isPositionsLoading ? (
+              <SectionSpinner label="Loading holdings..." />
+            ) : (
+              <div className="border-app bg-surface-1 mt-3 rounded-xl border">
+                {filteredHoldings.length > 0 ? (
+                  filteredHoldings.map(({ holding, presentation }, index) => (
+                    <article
+                      key={`${holding.symbol}-${holding.assetClass}`}
+                      className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
                       index !== filteredHoldings.length - 1 ? "border-app-soft border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/instruments/${encodeURIComponent(holding.symbol)}`}
-                          className="text-app-primary text-sm font-semibold leading-none hover:underline"
-                        >
-                          {presentation.title}
-                        </Link>
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
-                            holding.assetClass,
-                          )}`}
-                        >
-                          {getAssetClassChipLabel(holding.assetClass)}
-                        </span>
-                      </div>
-                      <p className="text-app-secondary mt-1.5 text-sm">
-                        {presentation.leftPrimaryText}{" "}
-                        <span className={holding.dayChangePercent < 0 ? "text-negative" : "text-positive"}>
-                          ({presentation.moveWindowLabel}: {formatSignedPercent(holding.dayChangePercent)})
-                        </span>
-                      </p>
-                      {presentation.leftSecondaryText ? (
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/instruments/${encodeURIComponent(holding.symbol)}`}
+                            className="text-app-primary text-sm font-semibold leading-none hover:underline"
+                          >
+                            {presentation.title}
+                          </Link>
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
+                              holding.assetClass,
+                            )}`}
+                          >
+                            {getAssetClassChipLabel(holding.assetClass)}
+                          </span>
+                        </div>
+                        <p className="text-app-secondary mt-1.5 text-sm">
+                          {presentation.leftPrimaryText}{" "}
+                        <span className={presentation.dayChangePercent < 0 ? "text-negative" : "text-positive"}>
+                          ({presentation.moveWindowLabel}: {formatSignedPercent(presentation.dayChangePercent)})
+                          </span>
+                        </p>
+                        {presentation.leftSecondaryText ? (
                         <p className="text-app-muted mt-1 text-xs">{presentation.leftSecondaryText}</p>
-                      ) : null}
-                    </div>
+                        ) : null}
+                      </div>
 
-                    <div className="shrink-0 text-right">
+                      <div className="shrink-0 text-right">
                       <p className="text-app-primary text-sm font-semibold">{formatCurrency(holding.marketValue)}</p>
-                      <p className="text-app-muted mt-1.5 text-xs">
-                        {presentation.performanceLabel}:{" "}
+                        <p className="text-app-muted mt-1.5 text-xs">
+                          {presentation.performanceLabel}:{" "}
                         <span className={holding.pnlPercent < 0 ? "text-negative" : "text-positive"}>
-                          {formatSignedPercent(holding.pnlPercent)}
-                        </span>
-                      </p>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="px-4 py-8 text-center @md:px-5">
-                  <p className="text-app-primary text-sm font-medium">No holdings match this filter.</p>
-                  <p className="text-app-secondary mt-1 text-sm">
-                    {hasOpenedAccounts
-                      ? "Choose at least one asset class to continue."
-                      : "Open an account to start building holdings."}
-                  </p>
-                </div>
-              )}
-            </div>
+                            {formatSignedPercent(holding.pnlPercent)}
+                          </span>
+                        </p>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="px-4 py-8 text-center @md:px-5">
+                    <p className="text-app-primary text-sm font-medium">
+                      No holdings match this filter.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </section>
@@ -695,57 +691,57 @@ export default function Home() {
 
         {isOrdersOpen ? (
           <div id="dashboard-section-orders" className="mt-4">
-            {isOrdersLoading ? (
-              <p className="text-app-secondary mt-1 text-sm">Loading orders...</p>
-            ) : null}
-
             {isOrdersError ? (
               <p className="text-negative mt-1 text-sm">Unable to load orders right now.</p>
             ) : null}
 
-            <div className="border-app bg-surface-1 mt-3 rounded-xl border">
-              {recentOrders.length > 0 ? (
-                recentOrders.map((order, index) => (
-                  <article
-                    key={`${order.orderId}-${order.submittedAt}`}
-                    className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
+            {isOrdersLoading ? (
+              <SectionSpinner label="Loading orders..." />
+            ) : (
+              <div className="border-app bg-surface-1 mt-3 rounded-xl border">
+                {recentOrders.length > 0 ? (
+                  recentOrders.map((order, index) => (
+                    <article
+                      key={`${order.orderId}-${order.submittedAt}`}
+                      className={`flex items-start justify-between gap-4 px-4 py-3 @md:px-5 ${
                       index !== recentOrders.length - 1 ? "border-app-soft border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
                         <p className="text-app-primary text-sm font-semibold">{order.instrumentSymbol}</p>
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
-                            order.assetClass,
-                          )}`}
-                        >
-                          {getAssetClassChipLabel(order.assetClass)}
-                        </span>
-                      </div>
-                      <p className="text-app-secondary mt-1.5 text-sm">
-                        {order.side}
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] ${getAccountTypeTagClass(
+                              order.assetClass,
+                            )}`}
+                          >
+                            {getAssetClassChipLabel(order.assetClass)}
+                          </span>
+                        </div>
+                        <p className="text-app-secondary mt-1.5 text-sm">
+                          {order.side}
                         {order.eventSide ? ` ${order.eventSide}` : ""} • {formatCurrency(order.amountUsd)} @{" "}
-                        {formatCurrency(order.pricePerUnit)}
-                      </p>
+                          {formatCurrency(order.pricePerUnit)}
+                        </p>
                       <p className="text-app-muted mt-1 text-xs">{formatDateTime(order.submittedAt)}</p>
-                    </div>
+                      </div>
 
-                    <div className="shrink-0 text-right">
+                      <div className="shrink-0 text-right">
                       <p className={`text-xs font-semibold uppercase tracking-[0.08em] ${getOrderStatusClassName(order.status)}`}>
-                        {order.status}
-                      </p>
+                          {order.status}
+                        </p>
                       <p className="text-app-muted mt-1.5 text-xs">#{order.orderId.slice(-6)}</p>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="px-4 py-8 text-center @md:px-5">
-                  <p className="text-app-primary text-sm font-medium">No orders yet.</p>
-                  <p className="text-app-secondary mt-1 text-sm">Submit a buy or sell order to see activity here.</p>
-                </div>
-              )}
-            </div>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="px-4 py-8 text-center @md:px-5">
+                    <p className="text-app-primary text-sm font-medium">No orders yet.</p>
+                    <p className="text-app-secondary mt-1 text-sm">Submit a buy or sell order to see activity here.</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </section>

@@ -38,6 +38,7 @@ Use these files for domain-specific business logic. Keep this root document as t
 
 | Date (YYYY-MM-DD) | Change | Author |
 | --- | --- | --- |
+| 2026-04-07 | Replaced file-based KV runtime storage with `Keyv` using the default in-memory backend for mappings, token cache, and order history. | AI assistant |
 | 2026-03-27 | Removed Postgres/Drizzle runtime dependency and moved to persistent file-based key-value storage (`KV_STORE_FILE`) for mappings and token cache. | AI assistant |
 | 2026-03-27 | Replaced DB architecture with persistent file-based key-value storage for client-account mappings and token cache. | AI assistant |
 | 2026-03-27 | Updated architecture decision to strict 1:N model: `client (user_id unique)` -> `broker_account (client_id FK)`. | AI assistant |

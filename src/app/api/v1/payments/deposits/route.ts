@@ -1,24 +1,13 @@
 import { NextRequest } from "next/server";
 
 import { fail, ok } from "@/server/http/response";
+import { withAuthedRoute } from "@/server/http/authed-route";
+import { parseEnumValue, toFiniteNumber } from "@/server/http/parsers";
 import {
   PaymentsServiceError,
   submitDeposit,
 } from "@/server/features/payments/service";
 import type { SubmitDepositInput } from "@/server/features/payments/types";
-
-function toNumber(value: unknown) {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : Number.NaN;
-  }
-
-  return Number.NaN;
-}
 
 function parseSubmitDepositPayload(body: unknown): SubmitDepositInput {
   if (!body || typeof body !== "object") {
@@ -26,28 +15,37 @@ function parseSubmitDepositPayload(body: unknown): SubmitDepositInput {
   }
 
   const payload = body as Record<string, unknown>;
+  const sourcePaymentAccountIdRaw =
+    payload.sourcePaymentAccountId !== undefined ? payload.sourcePaymentAccountId : payload.sourceInstructionId;
+  const direction = parseEnumValue(
+    payload.direction !== undefined ? String(payload.direction).toUpperCase() : undefined,
+    ["DEPOSIT", "WITHDRAW"] as const,
+  );
+  if (payload.direction !== undefined && !direction) {
+    throw new PaymentsServiceError("INVALID_DEPOSIT_INPUT", "direction must be DEPOSIT or WITHDRAW.", 400);
+  }
 
   return {
-    userId: String(payload.userId ?? ""),
-    sourceInstructionId:
-      payload.sourceInstructionId !== undefined ? String(payload.sourceInstructionId) : undefined,
+    direction,
+    sourcePaymentAccountId: sourcePaymentAccountIdRaw !== undefined ? String(sourcePaymentAccountIdRaw) : undefined,
     destinationAccountId: String(payload.destinationAccountId ?? ""),
-    amountUsd: toNumber(payload.amountUsd),
+    amountUsd: toFiniteNumber(payload.amountUsd),
   };
 }
 
-export async function POST(request: NextRequest) {
-  try {
+export const POST = withAuthedRoute(
+  async (request: NextRequest, user) => {
     const body = (await request.json()) as unknown;
     const input = parseSubmitDepositPayload(body);
-    const payload = await submitDeposit(input);
+    const payload = await submitDeposit(user.userId, input);
     return ok(payload, 201);
-  } catch (error: unknown) {
-    if (error instanceof PaymentsServiceError) {
-      return fail(error.code, error.message, error.status);
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof PaymentsServiceError) {
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+  },
+);

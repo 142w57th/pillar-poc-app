@@ -65,7 +65,7 @@ Define order lifecycle, validations, routing/execution behavior, and failure han
 - When `mock`, a simulated order is created immediately in `pending` state with a mock order ID.
 - When `real`, the order is translated to Harbor's market-order envelope and POSTed to the Harbor API path configured by `HARBOR_ORDERS_PATH` (default `/trading/v1/orders`).
 - Real Harbor order mapping currently supports `Equity` and `Crypto` payload translation for `/trading/v1/orders`.
-- Every submitted order (mock or real) is persisted in KV storage (`KV_STORE_FILE`) together with account linkage and normalized order metadata.
+- Every submitted order (mock or real) is persisted in in-memory `Keyv` storage together with account linkage and normalized order metadata.
 
 ## Open Questions
 
@@ -75,6 +75,7 @@ Define order lifecycle, validations, routing/execution behavior, and failure han
 
 | Date (YYYY-MM-DD) | Change | Author |
 | --- | --- | --- |
+| 2026-04-07 | Switched order persistence storage backend to in-memory `Keyv` (default adapter). | AI assistant |
 | 2026-03-30 | Rewired `GET /api/v1/orders` through Harbor provider proxy (party-scoped), matching the positions integration pattern. | AI assistant |
 | 2026-03-30 | Added `GET /api/v1/orders` and a lazy-loaded dashboard Orders section that fetches on expand. | AI assistant |
 | 2026-03-30 | Wired `/buy` and `/sell` submits to `POST /api/v1/orders`; mock submission now returns `pending` status to support staged API rollout. | AI assistant |

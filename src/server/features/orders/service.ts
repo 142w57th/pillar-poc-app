@@ -1,9 +1,14 @@
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
-import { OrdersListResult, SubmitOrderInput, SubmitOrderResult } from "@/server/features/orders/types";
-import { appendOrderForUser, listBrokerAccountsByUserId, listOrdersByUserId } from "@/server/storage/kv-store";
+import type { OrdersListResult, SubmitOrderInput, SubmitOrderResult } from "@/server/features/orders/types";
+import {
+  getCurrentClient,
+  listBrokerAccountsByClientId,
+} from "@/server/storage/keyv-store";
+import { toCanonicalAssetClassCode } from "@/lib/account-asset-class";
 
 type OrdersErrorCode =
   | "INVALID_ORDER_INPUT"
+  | "NO_LINKED_ACCOUNTS"
   | "TRADES_SUBMIT_FAILED"
   | "ORDERS_FETCH_FAILED"
   | "SERVER_CONFIG_ERROR";
@@ -19,16 +24,7 @@ export class OrdersServiceError extends Error {
   }
 }
 
-function isValidUuid(value: string) {
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidPattern.test(value);
-}
-
 function validateSubmitOrderInput(input: SubmitOrderInput) {
-  if (!input.userId || !isValidUuid(input.userId)) {
-    throw new OrdersServiceError("INVALID_ORDER_INPUT", "Invalid userId format. Expected UUID.", 400);
-  }
-
   if (!input.instrumentSymbol) {
     throw new OrdersServiceError("INVALID_ORDER_INPUT", "instrumentSymbol is required.", 400);
   }
@@ -44,43 +40,34 @@ function validateSubmitOrderInput(input: SubmitOrderInput) {
   if (!Number.isFinite(input.pricePerUnit) || input.pricePerUnit <= 0) {
     throw new OrdersServiceError("INVALID_ORDER_INPUT", "pricePerUnit must be a positive number.", 400);
   }
+}
 
-  if (input.assetClass === "Event Contract" && !input.eventSide) {
-    throw new OrdersServiceError("INVALID_ORDER_INPUT", "eventSide is required for Event Contract orders.", 400);
+async function resolveCurrentClientOrThrowByUserId(userId: string) {
+  const client = await getCurrentClient(userId);
+  if (!client) {
+    throw new OrdersServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
+  }
+  return client;
+}
+
+async function resolveAccountIdForOrder(clientId: string, assetClass: SubmitOrderInput["assetClass"]) {
+  const linkedAccounts = await listBrokerAccountsByClientId(clientId);
+  if (linkedAccounts.length === 0) {
+    throw new OrdersServiceError("NO_LINKED_ACCOUNTS", "No linked broker account found. Complete onboarding first.", 404);
   }
 
-  if (input.assetClass !== "Event Contract" && input.eventSide) {
-    throw new OrdersServiceError("INVALID_ORDER_INPUT", "eventSide is only valid for Event Contract orders.", 400);
-  }
-}
-
-function validateUserId(userId: string) {
-  if (!userId || !isValidUuid(userId)) {
-    throw new OrdersServiceError("INVALID_ORDER_INPUT", "Invalid userId format. Expected UUID.", 400);
-  }
-}
-
-function normalizeAccountType(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, "-");
-}
-
-function accountTypeForAssetClass(assetClass: SubmitOrderInput["assetClass"]) {
-  if (assetClass === "Equity") return "equity";
-  if (assetClass === "Crypto") return "crypto";
-  return "event-contract";
-}
-
-async function resolveAccountIdForOrder(userId: string, assetClass: SubmitOrderInput["assetClass"]) {
-  const requiredAccountType = accountTypeForAssetClass(assetClass);
-  const linkedAccounts = await listBrokerAccountsByUserId(userId);
-  const matchingAccount = linkedAccounts.find(
-    (account) => normalizeAccountType(account.accountType) === requiredAccountType,
-  );
+  const normalizedAssetClass = toCanonicalAssetClassCode(assetClass);
+  const matchingAccount = linkedAccounts.find((account) => {
+    if (!normalizedAssetClass) {
+      return false;
+    }
+    return toCanonicalAssetClassCode(account.accountType) === normalizedAssetClass;
+  });
 
   if (!matchingAccount) {
     throw new OrdersServiceError(
       "INVALID_ORDER_INPUT",
-      `No linked account found for asset class "${assetClass}". Expected account type "${requiredAccountType}".`,
+      `No linked account found for asset class "${assetClass}".`,
       400,
     );
   }
@@ -88,17 +75,18 @@ async function resolveAccountIdForOrder(userId: string, assetClass: SubmitOrderI
   return matchingAccount.externalAccountId;
 }
 
-export async function submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
+export async function submitOrder(userId: string, input: SubmitOrderInput): Promise<SubmitOrderResult> {
   validateSubmitOrderInput(input);
 
   const harborProvider = getHarborProvider();
-  const accountId = await resolveAccountIdForOrder(input.userId, input.assetClass);
+  const client = await resolveCurrentClientOrThrowByUserId(userId);
+  const accountId = await resolveAccountIdForOrder(client.id, input.assetClass);
   const externalId = `app-order-${Date.now()}`;
   let orderResult: Awaited<ReturnType<typeof harborProvider.submitOrder>>;
 
   try {
     orderResult = await harborProvider.submitOrder({
-      userId: input.userId,
+      clientId: client.id,
       accountId,
       instrumentSymbol: input.instrumentSymbol,
       assetClass: input.assetClass,
@@ -116,29 +104,6 @@ export async function submitOrder(input: SubmitOrderInput): Promise<SubmitOrderR
     }
 
     throw new OrdersServiceError("TRADES_SUBMIT_FAILED", message, 502);
-  }
-
-  try {
-    await appendOrderForUser({
-      userId: input.userId,
-      accountId,
-      provider: orderResult.provider,
-      orderId: orderResult.orderId,
-      status: orderResult.status,
-      submittedAt: orderResult.submittedAt,
-      instrumentSymbol: input.instrumentSymbol,
-      assetClass: input.assetClass,
-      side: input.side,
-      amountUsd: input.amountUsd,
-      pricePerUnit: input.pricePerUnit,
-      eventSide: input.eventSide,
-      estimatedUnits: orderResult.estimatedUnits,
-      estimatedMaxReturnUsd: orderResult.estimatedMaxReturnUsd,
-      providerReference: orderResult.providerReference,
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unable to persist order.";
-    throw new OrdersServiceError("SERVER_CONFIG_ERROR", message, 500);
   }
 
   return {
@@ -164,18 +129,41 @@ export async function submitOrder(input: SubmitOrderInput): Promise<SubmitOrderR
 }
 
 export async function getOrders(userId: string): Promise<OrdersListResult> {
-  validateUserId(userId);
-
   try {
-    const orders = await listOrdersByUserId(userId);
+    const harborProvider = getHarborProvider();
+    const client = await resolveCurrentClientOrThrowByUserId(userId);
+    const linkedAccounts = await listBrokerAccountsByClientId(client.id);
+    if (linkedAccounts.length === 0) {
+      throw new OrdersServiceError("NO_LINKED_ACCOUNTS", "No linked broker account found. Complete onboarding first.", 404);
+    }
+
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 30);
+
+    const orderResponses = await Promise.all(
+      linkedAccounts.map((account) =>
+        harborProvider.fetchOrders({
+          accountId: account.externalAccountId,
+          from: from.toISOString(),
+          to: to.toISOString(),
+          page: 1,
+          limit: 25,
+        }),
+      ),
+    );
+
+    const orders = orderResponses
+      .flatMap((response) => response.orders)
+      .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt));
 
     return {
       orders,
       meta: {
-        userId,
+        clientId: client.id,
         count: orders.length,
-        provider: "mock",
-        source: "kv-store",
+        provider: "harbor",
+        source: "harbor-orders-api",
         generatedAt: new Date().toISOString(),
       },
     };

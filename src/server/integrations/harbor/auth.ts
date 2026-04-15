@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { emitApiLog } from "@/server/api-log/event-bus";
 import { getHarborConfig } from "@/server/integrations/harbor/config";
-import { getOAuthToken, upsertOAuthToken } from "@/server/storage/kv-store";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
+import { getOAuthToken, upsertOAuthToken } from "@/server/storage/keyv-store";
 
 type HarborTokenResponse = {
   access_token: string;
@@ -55,16 +56,17 @@ function maskToken(token: string): string {
 
 async function requestNewToken() {
   const config = getHarborConfig();
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
   const body = new URLSearchParams({
     grant_type: "client_credentials",
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
   });
-
   if (config.authScope) {
     body.set("scope", config.authScope);
   }
-
+  const basicAuth = Buffer.from(
+    `${config.clientId}:${config.clientSecret}`
+  ).toString("base64");
   const start = performance.now();
   const authPath = new URL(config.authUrl).pathname;
 
@@ -73,15 +75,17 @@ async function requestNewToken() {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
+      Authorization: `Basic ${basicAuth}`,
     },
     body,
     cache: "no-store",
   });
-
   if (!response.ok) {
     const durationMs = Math.round(performance.now() - start);
     emitApiLog({
       id: randomUUID(),
+      userId: requestUserId,
+      sessionId: requestSessionId,
       timestamp: Date.now(),
       method: "POST",
       path: authPath,
@@ -98,6 +102,8 @@ async function requestNewToken() {
 
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: "POST",
     path: authPath,

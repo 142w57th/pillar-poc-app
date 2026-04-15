@@ -6,8 +6,6 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
 import { ApiResponse, DashboardPayload } from "@/types/api";
 
-const DASHBOARD_USER_ID = process.env.NEXT_PUBLIC_DEMO_USER_ID ?? "31f44327-82c4-4e7f-a6c5-362c230243b1";
-
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -17,13 +15,20 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function SectionSpinner({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div className="border-app bg-surface-2 mt-3 flex items-center justify-center gap-2 rounded-xl border px-4 py-8">
+      <span className="border-app-secondary/40 border-t-app-secondary inline-block h-4 w-4 animate-spin rounded-full border-2" />
+      <span className="text-app-secondary text-sm">{label}</span>
+    </div>
+  );
+}
+
 export default function TransferPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["dashboard", DASHBOARD_USER_ID],
+    queryKey: ["dashboard"],
     queryFn: async () => {
-      const response = await apiFetch<ApiResponse<DashboardPayload>>(
-        `/api/v1/dashboard?userId=${encodeURIComponent(DASHBOARD_USER_ID)}`,
-      );
+      const response = await apiFetch<ApiResponse<DashboardPayload>>("/api/v1/dashboard");
 
       if (!response.success) {
         throw new Error(response.error.message);
@@ -67,20 +72,23 @@ export default function TransferPage() {
         <h2 className="text-app-primary text-xl font-semibold">Transfer</h2>
         <p className="text-app-secondary mt-1 text-sm">Move money in or out of your account.</p>
 
-        {isLoading ? <p className="text-app-secondary mt-4 text-sm">Loading balances...</p> : null}
         {isError ? <p className="text-negative mt-4 text-sm">Unable to load balances right now.</p> : null}
 
-        <div className="mt-4 space-y-3">
-          <article className="border-app bg-surface-2 rounded-xl border p-4">
-            <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Buying Power</p>
-            <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(buyingPower)}</p>
-          </article>
+        {isLoading ? (
+          <SectionSpinner label="Loading balances..." />
+        ) : (
+          <div className="mt-4 space-y-3">
+            <article className="border-app bg-surface-2 rounded-xl border p-4">
+              <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Buying Power</p>
+              <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(buyingPower)}</p>
+            </article>
 
-          <article className="border-app bg-surface-2 rounded-xl border p-4">
-            <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Cash Available for Withdrawal</p>
-            <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(cashAvailableForWithdrawal)}</p>
-          </article>
-        </div>
+            <article className="border-app bg-surface-2 rounded-xl border p-4">
+              <p className="text-app-muted text-xs uppercase tracking-[0.12em]">Cash Available for Withdrawal</p>
+              <p className="text-app-primary mt-1 text-lg font-semibold">{formatCurrency(cashAvailableForWithdrawal)}</p>
+            </article>
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-1 gap-3 @sm:grid-cols-2">
           <Link

@@ -2,9 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import { emitApiLog } from "@/server/api-log/event-bus";
 import type { HttpMethod } from "@/server/api-log/types";
+import { buildHarborCreateAccountRequest } from "@/server/integrations/harbor/accounts";
+import type { FetchHarborInstrumentsInput } from "@/server/integrations/harbor/instruments";
+import type { FetchHarborQuoteOptions } from "@/server/integrations/harbor/quotes";
 import type { TradeOrderSubmitRequest } from "@/server/integrations/harbor/orders";
-import type { HarborSubmitDepositRequest } from "@/server/integrations/harbor/payments";
+import { buildHarborCreatePartyRequest } from "@/server/integrations/harbor/parties";
+import { buildHarborCreatePaymentAccountRequest } from "@/server/integrations/harbor/payments";
+import type {
+  HarborCreatePaymentAccountInput,
+  HarborGetPaymentAccountsInput,
+  HarborSubmitDepositRequest,
+} from "@/server/integrations/harbor/payments";
+import type { HarborCreateAccountInput } from "@/server/integrations/harbor/accounts";
+import type { HarborCreatePartyInput } from "@/server/integrations/harbor/parties";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
+import { getRequestSessionId, getRequestUserId } from "@/server/request-context";
 
 type EndpointMapping = {
   method: HttpMethod;
@@ -13,10 +25,25 @@ type EndpointMapping = {
 };
 
 const ENDPOINT_MAP: Record<string, EndpointMapping> = {
+  createParty: {
+    method: "POST",
+    path: "/v2/parties",
+    description: "Create party profile",
+  },
+  createAccount: {
+    method: "POST",
+    path: "/v2/accounts",
+    description: "Create brokerage account",
+  },
   fetchBalanceByAccountId: {
     method: "GET",
     path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/balances`,
     description: "Fetch account balance",
+  },
+  fetchAccountTemplates: {
+    method: "GET",
+    path: "/v1/account-templates",
+    description: "Fetch account templates",
   },
   fetchBalanceByPartyId: {
     method: "GET",
@@ -25,7 +52,7 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchInstruments: {
     method: "GET",
-    path: "/instruments",
+    path: "/v2/instruments/universes/streaming-demo",
     description: "Fetch instruments catalog",
   },
   submitOrder: {
@@ -35,13 +62,44 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchOrders: {
     method: "GET",
-    path: (partyId: unknown) => `/v2/trading/parties/${partyId}/orders`,
-    description: "Fetch party orders",
+    path: (input: unknown) => {
+      if (!input || typeof input !== "object") return "/trading/v1/orders";
+      const params = new URLSearchParams();
+      const cast = input as Record<string, unknown>;
+      if (typeof cast.accountId === "string" && cast.accountId) params.set("accountId", cast.accountId);
+      if (typeof cast.from === "string" && cast.from) params.set("from", cast.from);
+      if (typeof cast.to === "string" && cast.to) params.set("to", cast.to);
+      if (typeof cast.assetClass === "string" && cast.assetClass) params.set("assetClass", cast.assetClass);
+      if (typeof cast.status === "string" && cast.status) params.set("status", cast.status);
+      if (typeof cast.page === "number" && Number.isFinite(cast.page)) params.set("page", String(cast.page));
+      if (typeof cast.limit === "number" && Number.isFinite(cast.limit)) params.set("limit", String(cast.limit));
+      const query = params.toString();
+      return query ? `/trading/v1/orders?${query}` : "/trading/v1/orders";
+    },
+    description: "Fetch account orders",
   },
   fetchPaymentInstructions: {
     method: "GET",
     path: "/braavos/v1/payments/payment-instructions",
     description: "Fetch payment instructions",
+  },
+  fetchPaymentAccounts: {
+    method: "GET",
+    path: (input: unknown) => {
+      if (!input || typeof input !== "object") return "/v1/payments/payment-accounts";
+      const params = new URLSearchParams();
+      const cast = input as Record<string, unknown>;
+      if (typeof cast.clientId === "string" && cast.clientId) params.set("clientId", cast.clientId);
+      if (typeof cast.type === "string" && cast.type) params.set("type", cast.type);
+      const query = params.toString();
+      return query ? `/v1/payments/payment-accounts?${query}` : "/v1/payments/payment-accounts";
+    },
+    description: "Fetch payment accounts",
+  },
+  createPaymentAccount: {
+    method: "POST",
+    path: "/v1/payments/payment-accounts",
+    description: "Create payment account",
   },
   submitDeposit: {
     method: "POST",
@@ -50,23 +108,44 @@ const ENDPOINT_MAP: Record<string, EndpointMapping> = {
   },
   fetchPositions: {
     method: "GET",
+    path: (accountId: unknown) => `/v2/financials/accounts/${accountId}/positions`,
+    description: "Fetch account positions",
+  },
+  fetchPositionsByParty: {
+    method: "GET",
     path: (partyId: unknown) => `/v2/financials/parties/${partyId}/positions`,
     description: "Fetch party positions",
   },
   fetchQuote: {
     method: "GET",
-    path: (symbol: unknown) => `/quotes?symbol=${symbol}`,
-    description: "Fetch instrument quote",
+    path: (symbol: unknown, options: unknown) => {
+      const params = new URLSearchParams();
+      const cast = (options ?? {}) as Record<string, unknown>;
+      if (typeof cast.assetClass === "string" && cast.assetClass) {
+        params.set("assetClass", cast.assetClass);
+      }
+      params.set("includeExtendedHours", cast.includeExtendedHours ? "true" : "false");
+      return `/v2/prices/${symbol}/snapshot?${params.toString()}`;
+    },
+    description: "Fetch instrument price snapshot",
   },
 };
 
-function randomDelay(): Promise<number> {
-  const ms = Math.floor(Math.random() * 250) + 100;
-  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+function simulatedLatencyMs() {
+  return Math.floor(Math.random() * 250) + 100;
 }
 
 function resolveRequestBody(methodName: string, args: unknown[]): unknown {
+  if (methodName === "createParty") {
+    return buildHarborCreatePartyRequest(args[0] as HarborCreatePartyInput);
+  }
+  if (methodName === "createAccount") {
+    return buildHarborCreateAccountRequest(args[0] as HarborCreateAccountInput);
+  }
   if (methodName === "submitOrder") return args[0];
+  if (methodName === "createPaymentAccount") {
+    return buildHarborCreatePaymentAccountRequest(args[0] as HarborCreatePaymentAccountInput);
+  }
   if (methodName === "submitDeposit") return args[0];
   return undefined;
 }
@@ -78,21 +157,26 @@ function resolvePath(mapping: EndpointMapping, args: unknown[]): string {
   return mapping.path;
 }
 
-let hasEmittedAuthForSession = false;
+const emittedAuthByUser = new Set<string>();
 
-async function emitMockAuthEvent() {
-  if (hasEmittedAuthForSession) return;
-  hasEmittedAuthForSession = true;
+function emitMockAuthEvent() {
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
+  const userKey = requestUserId && requestSessionId ? `${requestUserId}:${requestSessionId}` : "__anonymous__";
+  if (emittedAuthByUser.has(userKey)) return;
+  emittedAuthByUser.add(userKey);
 
-  const delay = await randomDelay();
+  const durationMs = simulatedLatencyMs();
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: "POST",
     path: "/v1/auth/token",
     description: "Authenticate with OAuth 2.0 client credentials",
     status: 200,
-    durationMs: delay,
+    durationMs,
     requestBody: { grant_type: "client_credentials" },
     responseBody: {
       access_token: "eyJhbGci0iJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIi...mock-signature",
@@ -104,53 +188,80 @@ async function emitMockAuthEvent() {
 
 export function createLoggedHarborProvider(inner: HarborProvider): HarborProvider {
   return {
+    async createParty(input: HarborCreatePartyInput) {
+      emitMockAuthEvent();
+      return loggedCall("createParty", [input], () => inner.createParty(input));
+    },
+
+    async createAccount(input: HarborCreateAccountInput) {
+      emitMockAuthEvent();
+      return loggedCall("createAccount", [input], () => inner.createAccount(input));
+    },
+
+    async fetchAccountTemplates() {
+      emitMockAuthEvent();
+      return loggedCall("fetchAccountTemplates", [], () => inner.fetchAccountTemplates());
+    },
+
     async fetchBalanceByAccountId(accountId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchBalanceByAccountId", [accountId], () =>
         inner.fetchBalanceByAccountId(accountId),
       );
     },
 
     async fetchBalanceByPartyId(partyId: string) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchBalanceByPartyId", [partyId], () =>
         inner.fetchBalanceByPartyId(partyId),
       );
     },
 
-    async fetchInstruments() {
-      await emitMockAuthEvent();
-      return loggedCall("fetchInstruments", [], () => inner.fetchInstruments());
+    async fetchInstruments(input?: FetchHarborInstrumentsInput) {
+      emitMockAuthEvent();
+      return loggedCall("fetchInstruments", [input], () => inner.fetchInstruments(input));
     },
 
     async submitOrder(input: TradeOrderSubmitRequest) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("submitOrder", [input], () => inner.submitOrder(input));
     },
 
-    async fetchOrders(partyId: string) {
-      await emitMockAuthEvent();
-      return loggedCall("fetchOrders", [partyId], () => inner.fetchOrders(partyId));
+    async fetchOrders(input) {
+      emitMockAuthEvent();
+      return loggedCall("fetchOrders", [input], () => inner.fetchOrders(input));
     },
 
     async fetchPaymentInstructions() {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("fetchPaymentInstructions", [], () => inner.fetchPaymentInstructions());
     },
-
+    async fetchPaymentAccounts(input: HarborGetPaymentAccountsInput) {
+      emitMockAuthEvent();
+      return loggedCall("fetchPaymentAccounts", [input], () => inner.fetchPaymentAccounts(input));
+    },
+    async createPaymentAccount(input: HarborCreatePaymentAccountInput) {
+      emitMockAuthEvent();
+      return loggedCall("createPaymentAccount", [input], () => inner.createPaymentAccount(input));
+    },
     async submitDeposit(input: HarborSubmitDepositRequest) {
-      await emitMockAuthEvent();
+      emitMockAuthEvent();
       return loggedCall("submitDeposit", [input], () => inner.submitDeposit(input));
     },
 
-    async fetchPositions(partyId: string) {
-      await emitMockAuthEvent();
-      return loggedCall("fetchPositions", [partyId], () => inner.fetchPositions(partyId));
+    async fetchPositions(accountId: string) {
+      emitMockAuthEvent();
+      return loggedCall("fetchPositions", [accountId], () => inner.fetchPositions(accountId));
     },
 
-    async fetchQuote(symbol: string) {
-      await emitMockAuthEvent();
-      return loggedCall("fetchQuote", [symbol], () => inner.fetchQuote(symbol));
+    async fetchPositionsByParty(partyId: string) {
+      emitMockAuthEvent();
+      return loggedCall("fetchPositionsByParty", [partyId], () => inner.fetchPositionsByParty(partyId));
+    },
+
+    async fetchQuote(symbol: string, options?: FetchHarborQuoteOptions) {
+      emitMockAuthEvent();
+      return loggedCall("fetchQuote", [symbol, options], () => inner.fetchQuote(symbol, options));
     },
   };
 }
@@ -162,20 +273,24 @@ async function loggedCall<T>(
 ): Promise<T> {
   const mapping = ENDPOINT_MAP[methodName];
   if (!mapping) return execute();
+  const requestUserId = getRequestUserId();
+  const requestSessionId = getRequestSessionId();
 
-  const delay = await randomDelay();
+  const simulatedDuration = simulatedLatencyMs();
   const start = performance.now();
   const result = await execute();
   const actualDuration = Math.round(performance.now() - start);
 
   emitApiLog({
     id: randomUUID(),
+    userId: requestUserId,
+    sessionId: requestSessionId,
     timestamp: Date.now(),
     method: mapping.method,
     path: resolvePath(mapping, args),
     description: mapping.description,
     status: 200,
-    durationMs: delay + actualDuration,
+    durationMs: simulatedDuration + actualDuration,
     requestBody: resolveRequestBody(methodName, args),
     responseBody: result,
   });

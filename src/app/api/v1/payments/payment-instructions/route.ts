@@ -1,19 +1,21 @@
 import { fail, ok } from "@/server/http/response";
+import { withAuthedRoute } from "@/server/http/authed-route";
 import {
   getPaymentInstructions,
   PaymentsServiceError,
 } from "@/server/features/payments/service";
 
-export async function GET() {
-  try {
+export const GET = withAuthedRoute(
+  async () => {
     const payload = await getPaymentInstructions();
     return ok(payload);
-  } catch (error: unknown) {
-    if (error instanceof PaymentsServiceError) {
-      return fail(error.code, error.message, error.status);
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof PaymentsServiceError) {
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+  },
+);

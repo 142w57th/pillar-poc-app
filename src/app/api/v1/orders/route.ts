@@ -2,20 +2,9 @@ import { NextRequest } from "next/server";
 
 import { getOrders, submitOrder, OrdersServiceError } from "@/server/features/orders/service";
 import type { SubmitOrderInput } from "@/server/features/orders/types";
+import { withAuthedRoute } from "@/server/http/authed-route";
+import { parseEnumValue, toFiniteNumber } from "@/server/http/parsers";
 import { fail, ok } from "@/server/http/response";
-
-function toNumber(value: unknown) {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : Number.NaN;
-  }
-
-  return Number.NaN;
-}
 
 function parseSubmitOrderPayload(body: unknown): SubmitOrderInput {
   if (!body || typeof body !== "object") {
@@ -23,58 +12,59 @@ function parseSubmitOrderPayload(body: unknown): SubmitOrderInput {
   }
 
   const payload = body as Record<string, unknown>;
+  const assetClass = parseEnumValue(payload.assetClass, ["Equity", "Crypto"] as const);
+  if (!assetClass) {
+    throw new OrdersServiceError("INVALID_ORDER_INPUT", "assetClass must be Equity or Crypto.", 400);
+  }
+
+  const side = parseEnumValue(payload.side, ["BUY", "SELL"] as const);
+  if (!side) {
+    throw new OrdersServiceError("INVALID_ORDER_INPUT", "side must be BUY or SELL.", 400);
+  }
+
+  const eventSide = parseEnumValue(payload.eventSide, ["YES", "NO"] as const);
+  if (payload.eventSide !== undefined && !eventSide) {
+    throw new OrdersServiceError("INVALID_ORDER_INPUT", "eventSide must be YES or NO when provided.", 400);
+  }
 
   return {
-    userId: String(payload.userId ?? ""),
     instrumentSymbol: String(payload.instrumentSymbol ?? ""),
-    assetClass: payload.assetClass as SubmitOrderInput["assetClass"],
-    side: payload.side as SubmitOrderInput["side"],
-    amountUsd: toNumber(payload.amountUsd),
-    pricePerUnit: toNumber(payload.pricePerUnit),
-    eventSide: payload.eventSide as SubmitOrderInput["eventSide"],
+    assetClass,
+    side,
+    amountUsd: toFiniteNumber(payload.amountUsd),
+    pricePerUnit: toFiniteNumber(payload.pricePerUnit),
+    eventSide,
   };
 }
 
-function parseUserId(request: NextRequest) {
-  const userId = request.nextUrl.searchParams.get("userId") ?? request.headers.get("x-user-id") ?? "";
-  if (!userId) {
-    throw new OrdersServiceError(
-      "INVALID_ORDER_INPUT",
-      "Missing userId. Provide ?userId=<uuid> or x-user-id header.",
-      400,
-    );
-  }
-
-  return userId;
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const userId = parseUserId(request);
-    const payload = await getOrders(userId);
+export const GET = withAuthedRoute(
+  async (_request: NextRequest, user) => {
+    const payload = await getOrders(user.userId);
     return ok(payload);
-  } catch (error: unknown) {
-    if (error instanceof OrdersServiceError) {
-      return fail(error.code, error.message, error.status);
-    }
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof OrdersServiceError) {
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+  },
+);
 
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
+export const POST = withAuthedRoute(
+  async (request: NextRequest, user) => {
     const body = (await request.json()) as unknown;
     const input = parseSubmitOrderPayload(body);
-    const payload = await submitOrder(input);
+    const payload = await submitOrder(user.userId, input);
     return ok(payload, 201);
-  } catch (error: unknown) {
-    if (error instanceof OrdersServiceError) {
-      return fail(error.code, error.message, error.status);
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("INTERNAL_SERVER_ERROR", message, 500);
-  }
-}
+  },
+  {
+    onError: (error: unknown) => {
+      if (error instanceof OrdersServiceError) {
+        return fail(error.code, error.message, error.status);
+      }
+      return null;
+    },
+  },
+);

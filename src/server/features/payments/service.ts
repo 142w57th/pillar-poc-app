@@ -1,7 +1,16 @@
-import { listBrokerAccountsByUserId } from "@/server/storage/kv-store";
+import { getCurrentClient, listBrokerAccountsByClientId } from "@/server/storage/keyv-store";
+import { toCanonicalAssetClassLabel } from "@/lib/account-asset-class";
 import { getHarborProvider } from "@/server/integrations/harbor/provider";
 import type {
+  HarborCreatePaymentAccountResponse,
+  HarborPaymentAccount,
+} from "@/server/integrations/harbor/payments";
+import type {
+  CreatePaymentAccountInput,
+  CreatePaymentAccountResult,
   DestinationAccountsResult,
+  GetPaymentAccountsInput,
+  PaymentAccountsResult,
   PaymentInstructionsResult,
   SubmitDepositInput,
   SubmitDepositResult,
@@ -9,11 +18,13 @@ import type {
 
 type PaymentsErrorCode =
   | "INVALID_DEPOSIT_INPUT"
+  | "INVALID_PAYMENT_ACCOUNT_INPUT"
+  | "NO_LINKED_ACCOUNTS"
   | "PAYMENT_INSTRUCTIONS_FETCH_FAILED"
+  | "PAYMENT_ACCOUNTS_FETCH_FAILED"
+  | "PAYMENT_ACCOUNT_CREATE_FAILED"
   | "DEPOSIT_SUBMIT_FAILED"
   | "SERVER_CONFIG_ERROR";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PaymentsServiceError extends Error {
   code: PaymentsErrorCode;
@@ -27,16 +38,19 @@ export class PaymentsServiceError extends Error {
 }
 
 function toAccountLabel(accountType: string, externalAccountId: string) {
-  const normalizedType = accountType
-    .split("-")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
+  const canonicalLabel = toCanonicalAssetClassLabel(accountType);
+  const normalizedType = canonicalLabel
+    ?? accountType
+      .split(/[-_]/g)
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+      .join(" ");
   return `${normalizedType} ••••${externalAccountId.slice(-4)}`;
 }
 
-function validateUserId(userId: string) {
-  if (!userId || !UUID_RE.test(userId)) {
-    throw new PaymentsServiceError("INVALID_DEPOSIT_INPUT", "Invalid userId format. Expected UUID.", 400);
+function validateClientId(clientId: string) {
+  if (!clientId || !clientId.trim()) {
+    throw new PaymentsServiceError("INVALID_PAYMENT_ACCOUNT_INPUT", "clientId is required.", 400);
   }
 }
 
@@ -44,8 +58,80 @@ function resolveProviderId() {
   return process.env.HARBOR_PROVIDER?.trim().toLowerCase() === "real" ? "harbor" : "mock";
 }
 
+function isNoPaymentAccountsFoundError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("no payment accounts found") || normalized.includes("\"code\":\"not_found\"");
+}
+
 function formatAmountToUsdString(amountUsd: number) {
   return amountUsd.toFixed(2);
+}
+
+function requireNonEmptyString(value: string, fieldName: string) {
+  if (!value.trim()) {
+    throw new PaymentsServiceError("INVALID_PAYMENT_ACCOUNT_INPUT", `${fieldName} is required.`, 400);
+  }
+}
+
+function normalizeMetadataForProvider(
+  metadata?: Record<string, unknown>,
+): Record<string, string> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(
+    entries.map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value ?? null)]),
+  );
+}
+
+function validateCreatePaymentAccountInput(input: CreatePaymentAccountInput) {
+  const { data } = input;
+  requireNonEmptyString(data.clientId, "data.clientId");
+  validateClientId(data.clientId);
+  requireNonEmptyString(data.currency, "data.currency");
+  requireNonEmptyString(data.country, "data.country");
+
+  if (data.details.type !== "BANK_ACCOUNT") {
+    throw new PaymentsServiceError("INVALID_PAYMENT_ACCOUNT_INPUT", "data.details.type must be BANK_ACCOUNT.", 400);
+  }
+}
+
+function mapPaymentAccount(account: HarborPaymentAccount): PaymentAccountsResult["data"][number] {
+  return {
+    paymentAccountId: account.paymentAccountId,
+    status: account.status,
+    currency: account.currency,
+    country: account.country,
+    maskedIdentifier: account.maskedIdentifier,
+    nickname: account.nickname,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+    externalId: account.externalId,
+    metadata: account.metadata,
+    details: {
+      type: account.details.type,
+      accountType: account.details.accountType,
+      bankName: account.details.bankName,
+      bankAddress: account.details.bankAddress,
+      bankIdentifierType: account.details.bankIdentifierType,
+      bankIdentifier: account.details.bankIdentifier,
+    },
+  };
+}
+
+function mapCreatePaymentAccountResult(
+  response: HarborCreatePaymentAccountResponse,
+  provider: "mock" | "harbor",
+): CreatePaymentAccountResult {
+  return {
+    data: mapPaymentAccount(response.data),
+    meta: {
+      provider,
+      source: "harbor-provider",
+      generatedAt: new Date().toISOString(),
+      requestId: response.meta?.requestId,
+    },
+  };
 }
 
 export async function getPaymentInstructions(): Promise<PaymentInstructionsResult> {
@@ -70,9 +156,77 @@ export async function getPaymentInstructions(): Promise<PaymentInstructionsResul
   }
 }
 
+export async function getPaymentAccounts(input: GetPaymentAccountsInput): Promise<PaymentAccountsResult> {
+  const harborProvider = getHarborProvider();
+  const provider = resolveProviderId();
+
+  try {
+    validateClientId(input.clientId);
+    const response = await harborProvider.fetchPaymentAccounts({
+      clientId: input.clientId,
+      type: input.type,
+    });
+    return {
+      data: (response.data ?? []).map(mapPaymentAccount),
+      meta: {
+        provider,
+        source: "harbor-provider",
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unexpected payment accounts integration error.";
+    if (isNoPaymentAccountsFoundError(message)) {
+      return {
+        data: [],
+        meta: {
+          provider,
+          source: "harbor-provider",
+          generatedAt: new Date().toISOString(),
+        },
+      };
+    }
+    if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
+      throw new PaymentsServiceError("SERVER_CONFIG_ERROR", message, 500);
+    }
+    throw new PaymentsServiceError("PAYMENT_ACCOUNTS_FETCH_FAILED", message, 502);
+  }
+}
+
+export async function createPaymentAccount(input: CreatePaymentAccountInput): Promise<CreatePaymentAccountResult> {
+  const harborProvider = getHarborProvider();
+
+  try {
+    validateCreatePaymentAccountInput(input);
+    const response = await harborProvider.createPaymentAccount({
+      clientId: input.data.clientId,
+      nickname: input.data.nickname,
+      bankName: input.data.details.bankName,
+      currency: input.data.currency,
+      country: input.data.country,
+      externalId: input.data.externalId,
+      metadata: normalizeMetadataForProvider(input.data.metadata),
+    });
+    return mapCreatePaymentAccountResult(response, resolveProviderId());
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unexpected payment account integration error.";
+    if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
+      throw new PaymentsServiceError("SERVER_CONFIG_ERROR", message, 500);
+    }
+    throw new PaymentsServiceError("PAYMENT_ACCOUNT_CREATE_FAILED", message, 502);
+  }
+}
+async function resolveCurrentClientOrThrow(userId: string) {
+  const client = await getCurrentClient(userId);
+  if (!client) {
+    throw new PaymentsServiceError("NO_LINKED_ACCOUNTS", "No linked client found. Complete onboarding first.", 404);
+  }
+  return client;
+}
+
 export async function getDestinationAccounts(userId: string): Promise<DestinationAccountsResult> {
-  validateUserId(userId);
-  const linkedAccounts = await listBrokerAccountsByUserId(userId);
+  const client = await resolveCurrentClientOrThrow(userId);
+  const linkedAccounts = await listBrokerAccountsByClientId(client.id);
 
   const accounts = linkedAccounts.map((account) => ({
     accountType: account.accountType,
@@ -83,15 +237,16 @@ export async function getDestinationAccounts(userId: string): Promise<Destinatio
   return {
     accounts,
     meta: {
-      userId,
+      clientId: client.id,
       count: accounts.length,
       source: "kv-store",
     },
   };
 }
 
-export async function submitDeposit(input: SubmitDepositInput): Promise<SubmitDepositResult> {
-  validateUserId(input.userId);
+export async function submitDeposit(userId: string, input: SubmitDepositInput): Promise<SubmitDepositResult> {
+  const client = await resolveCurrentClientOrThrow(userId);
+  const direction = input.direction === "WITHDRAW" ? "WITHDRAW" : "DEPOSIT";
 
   if (!input.destinationAccountId) {
     throw new PaymentsServiceError("INVALID_DEPOSIT_INPUT", "destinationAccountId is required.", 400);
@@ -101,7 +256,7 @@ export async function submitDeposit(input: SubmitDepositInput): Promise<SubmitDe
     throw new PaymentsServiceError("INVALID_DEPOSIT_INPUT", "amountUsd must be a positive number.", 400);
   }
 
-  const linkedAccounts = await listBrokerAccountsByUserId(input.userId);
+  const linkedAccounts = await listBrokerAccountsByClientId(client.id);
   const destinationExists = linkedAccounts.some((account) => account.externalAccountId === input.destinationAccountId);
   if (!destinationExists) {
     throw new PaymentsServiceError(
@@ -114,33 +269,44 @@ export async function submitDeposit(input: SubmitDepositInput): Promise<SubmitDe
   const harborProvider = getHarborProvider();
 
   try {
-    const paymentInstructions = await harborProvider.fetchPaymentInstructions();
-    const fallbackSourceInstructionId = paymentInstructions.accounts[0]?.instructionId ?? "";
-    const sourceInstructionId = input.sourceInstructionId || fallbackSourceInstructionId;
+    const paymentAccountsResponse = await harborProvider.fetchPaymentAccounts({
+      clientId: client.id,
+      type: "BANK_ACCOUNT",
+    });
+    const linkedPaymentAccounts = (paymentAccountsResponse.data ?? []).filter((account) => account.status === "LINKED");
+    const fallbackSourcePaymentAccountId = linkedPaymentAccounts[0]?.paymentAccountId ?? "";
+    const sourcePaymentAccountId = input.sourcePaymentAccountId || fallbackSourcePaymentAccountId;
 
-    if (!sourceInstructionId) {
+    if (!sourcePaymentAccountId) {
+      throw new PaymentsServiceError("INVALID_DEPOSIT_INPUT", "sourcePaymentAccountId is required.", 400);
+    }
+
+    const selectedSourceExists = linkedPaymentAccounts.some(
+      (account) => account.paymentAccountId === sourcePaymentAccountId,
+    );
+    if (!selectedSourceExists) {
       throw new PaymentsServiceError(
         "INVALID_DEPOSIT_INPUT",
-        "No source payment instruction account is available for this deposit.",
+        "sourcePaymentAccountId must match one of the linked payment accounts.",
         400,
       );
     }
 
     const depositResult = await harborProvider.submitDeposit({
       data: {
-        transferType: "WIRE",
+        transferType: "ACH",
         orchestrationMode: "PARTNER_PROCESSOR",
-        description: "Deposit via app",
-        comment: "Submitted from deposit flow",
+        description: direction === "WITHDRAW" ? "Withdraw via app" : "Deposit via app",
+        comment: direction === "WITHDRAW" ? "Submitted from withdraw flow" : "Submitted from deposit flow",
         sourceAccount: {
-          id: sourceInstructionId,
-          type: "CLIENT",
+          id: direction === "WITHDRAW" ? input.destinationAccountId : sourcePaymentAccountId,
+          type: direction === "WITHDRAW" ? "CLIENT" : "PAYMENT",
         },
         destinationAccount: {
-          id: input.destinationAccountId,
-          type: "CLIENT",
+          id: direction === "WITHDRAW" ? sourcePaymentAccountId : input.destinationAccountId,
+          type: direction === "WITHDRAW" ? "PAYMENT" : "CLIENT",
         },
-        externalId: `deposit-${input.userId.slice(0, 8)}-${Date.now()}`,
+        externalId: `${direction === "WITHDRAW" ? "withdraw" : "deposit"}-${client.id.slice(0, 8)}-${Date.now()}`,
         metadata: {
           additionalProp1: {},
         },

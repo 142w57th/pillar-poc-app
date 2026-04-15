@@ -3,27 +3,38 @@ import instrumentsFixture from "@/server/integrations/harbor/fixtures/instrument
 import ordersFixture from "@/server/integrations/harbor/fixtures/orders.json";
 import positionsFixture from "@/server/integrations/harbor/fixtures/positions.json";
 import quotesFixture from "@/server/integrations/harbor/fixtures/quotes.json";
+import type { HarborAccountTemplatesResponse } from "@/server/integrations/harbor/account-templates";
+import type { HarborCreateAccountInput } from "@/server/integrations/harbor/accounts";
+import { createMockHarborAccount } from "@/server/integrations/harbor/mock/accounts";
+import { createMockHarborParty } from "@/server/integrations/harbor/mock/parties";
 import type {
   HarborBalanceData,
   HarborBalanceResponse,
   HarborPartyBalanceResponse,
 } from "@/server/integrations/harbor/balances";
 import type {
+  FetchHarborInstrumentsInput,
   InstrumentRecord,
   InstrumentsCatalogMeta,
   InstrumentsCatalogResponse,
 } from "@/server/integrations/harbor/instruments";
+import type { FetchHarborQuoteOptions } from "@/server/integrations/harbor/quotes";
 import type {
   HarborOrderSnapshot,
   HarborOrdersResponse,
   TradeOrderSubmitRequest,
 } from "@/server/integrations/harbor/orders";
 import type {
+  HarborCreatePaymentAccountInput,
+  HarborCreatePaymentAccountResponse,
+  HarborGetPaymentAccountsInput,
+  HarborPaymentAccountsResponse,
   HarborPaymentInstructionsResponse,
   HarborSubmitDepositRequest,
 } from "@/server/integrations/harbor/payments";
 import type { PositionSnapshot, PositionsResponse } from "@/server/integrations/harbor/positions";
 import type { QuoteSnapshot, QuoteResponse } from "@/server/integrations/harbor/quotes";
+import type { HarborCreatePartyInput } from "@/server/integrations/harbor/parties";
 import type { HarborProvider } from "@/server/integrations/harbor/provider";
 
 type HarborBalanceFixture = {
@@ -55,7 +66,7 @@ const BALANCES_FIXTURE = mockBalances as HarborBalanceFixture;
 const INSTRUMENTS_FIXTURE = instrumentsFixture as InstrumentsFixture;
 const ORDERS_FIXTURE = ordersFixture as OrdersFixture;
 const POSITIONS_FIXTURE = positionsFixture as PositionsFixture;
-const QUOTES_FIXTURE = quotesFixture as QuotesFixture;
+const QUOTES_FIXTURE = quotesFixture as unknown as QuotesFixture;
 const PAYMENT_INSTRUCTIONS_FIXTURE: HarborPaymentInstructionsResponse = {
   accounts: [
     {
@@ -77,6 +88,45 @@ const PAYMENT_INSTRUCTIONS_FIXTURE: HarborPaymentInstructionsResponse = {
       currency: "USD",
     },
   ],
+  meta: {
+    source: "mock-fixture",
+    generatedAt: new Date().toISOString(),
+  },
+};
+const PAYMENT_ACCOUNTS_FIXTURE: HarborPaymentAccountsResponse = {
+  data: [
+    {
+      paymentAccountId: "pa-chase-checking",
+      status: "LINKED",
+      currency: "USD",
+      country: "USA",
+      maskedIdentifier: "****9876",
+      nickname: "Primary bank",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      externalId: "mock-pa-001",
+      metadata: {
+        source: "mock-fixture",
+      },
+      details: {
+        type: "BANK_ACCOUNT",
+        accountType: "checking",
+        bankName: "Chase Bank",
+        bankAddress: "270 Park Ave, New York, NY",
+        bankIdentifierType: "ABA_ROUTING",
+        bankIdentifier: "021000021",
+      },
+    },
+  ],
+};
+
+const ACCOUNT_TEMPLATES_FIXTURE: HarborAccountTemplatesResponse = {
+  data: {
+    accountTemplates: [
+      { accountTemplateCode: "DIGITAL_ASSETS_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
+      { accountTemplateCode: "RETAIL_SELF_DIRECTED_STANDARD", offeringCode: "BROKERAGE_INDIVIDUAL_CASH" },
+    ],
+  },
   meta: {
     source: "mock-fixture",
     generatedAt: new Date().toISOString(),
@@ -125,15 +175,42 @@ function getPartyBalanceFromFixture(partyId: string): HarborPartyBalanceResponse
 
   return {
     data: {
-      partyId,
-      totalMarketValue: sums.totalMarketValue.toFixed(2),
-      totalCostBasis: sums.totalCostBasis.toFixed(2),
-      cashBalance: sums.cashBalance.toFixed(2),
-      buyingPower: sums.buyingPower.toFixed(2),
-      currency,
-      cashAvailableForWithdrawal: sums.cashAvailableForWithdrawal.toFixed(2),
-      accountValue: sums.accountValue.toFixed(2),
-      calculatedAt,
+      accounts: balances.map((balance, index) => ({
+        accountNumber: `1000${String(index + 1000).slice(-4)}`,
+        accountProviderId: "BETA",
+        currency: balance.currency || "USD",
+        updatedOn: balance.calculatedAt || calculatedAt,
+        fundsAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        freeCreditBalance: 0,
+        cashBalances: {
+          cashBalance: Number(balance.cashBalance || 0),
+          cashAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        },
+        marginBalances: {
+          marginBalance: 0,
+          buyingPower: Number(balance.buyingPower || 0),
+          cashAvailable: Number(balance.cashAvailableForWithdrawal || 0),
+        },
+        sweepBalances: {
+          sweepBalance: 0,
+        },
+        otherBalances: {
+          fedCallBalance: 0,
+          houseCallBalance: 0,
+          specialMiscellaneousBalances: 0,
+        },
+      })),
+      party: {
+        partyId,
+        totalMarketValue: sums.totalMarketValue.toFixed(2),
+        totalCostBasis: sums.totalCostBasis.toFixed(2),
+        cashBalance: sums.cashBalance.toFixed(2),
+        buyingPower: sums.buyingPower.toFixed(2),
+        currency,
+        cashAvailableForWithdrawal: sums.cashAvailableForWithdrawal.toFixed(2),
+        accountValue: sums.accountValue.toFixed(2),
+        calculatedAt,
+      },
     },
     meta: BALANCES_FIXTURE.meta,
   };
@@ -144,8 +221,53 @@ function round(value: number, digits = 4) {
   return Math.round(value * base) / base;
 }
 
+function createMockPaymentAccount(input: HarborCreatePaymentAccountInput): HarborCreatePaymentAccountResponse {
+  const bankName = input.bankName?.trim() || "Linked bank";
+  return {
+    data: {
+      paymentAccountId: `pa-mock-${crypto.randomUUID()}`,
+      status: "LINKED" as const,
+      currency: "USD" as const,
+      country: "USA" as const,
+      maskedIdentifier: "****1234" as const,
+      nickname: bankName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      externalId: `mock-${Date.now()}` as const,
+      metadata: {
+        source: "mock-provider" as const,
+      },
+      details: {
+        type: "BANK_ACCOUNT" as const,
+        bankName,
+      },
+    },
+    meta: {
+      requestId: `mock-${crypto.randomUUID()}`,
+    },
+  };
+}
+
 export function createMockHarborProvider(): HarborProvider {
   return {
+    createParty(input: HarborCreatePartyInput) {
+      return createMockHarborParty(input);
+    },
+
+    createAccount(input: HarborCreateAccountInput) {
+      return createMockHarborAccount(input);
+    },
+
+    fetchAccountTemplates() {
+      return Promise.resolve({
+        ...ACCOUNT_TEMPLATES_FIXTURE,
+        meta: {
+          ...ACCOUNT_TEMPLATES_FIXTURE.meta,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    },
+
     fetchBalanceByAccountId(accountId: string) {
       return Promise.resolve(getBalanceFromFixture(accountId));
     },
@@ -154,10 +276,22 @@ export function createMockHarborProvider(): HarborProvider {
       return Promise.resolve(getPartyBalanceFromFixture(partyId));
     },
 
-    fetchInstruments() {
+    fetchInstruments(input?: FetchHarborInstrumentsInput) {
+      void input;
+      const instruments = INSTRUMENTS_FIXTURE.instruments
+        .filter((item) => item.assetClass === "Equity" || item.assetClass === "Crypto")
+        .map((item) => ({
+          ...item,
+          assetClass: item.assetClass.toUpperCase(),
+          feedSymbol: item.assetClass === "Crypto" ? item.symbol.replace("/", "-") : item.symbol,
+        }));
+
       return Promise.resolve({
-        instruments: INSTRUMENTS_FIXTURE.instruments,
-        meta: INSTRUMENTS_FIXTURE.meta,
+        instruments,
+        meta: {
+          ...INSTRUMENTS_FIXTURE.meta,
+          source: "mock-universe:streaming-demo",
+        },
       } satisfies InstrumentsCatalogResponse);
     },
 
@@ -167,18 +301,17 @@ export function createMockHarborProvider(): HarborProvider {
       return Promise.resolve({
         provider: "mock" as const,
         orderId: `mock-${crypto.randomUUID()}`,
-        status: "pending" as const,
+        status: "PENDING" as const,
         submittedAt: new Date().toISOString(),
         providerReference: "mock-order-engine",
         estimatedUnits: round(estimatedUnits),
-        estimatedMaxReturnUsd:
-          input.assetClass === "Event Contract" ? round(estimatedUnits * 1, 2) : undefined,
       });
     },
 
-    fetchOrders() {
+    fetchOrders(input) {
+      const filteredOrders = ORDERS_FIXTURE.orders.filter((order) => order.accountId === input.accountId);
       return Promise.resolve({
-        orders: ORDERS_FIXTURE.orders,
+        orders: filteredOrders,
         meta: {
           ...ORDERS_FIXTURE.meta,
           generatedAt: new Date().toISOString(),
@@ -195,6 +328,15 @@ export function createMockHarborProvider(): HarborProvider {
         },
       });
     },
+    fetchPaymentAccounts(input: HarborGetPaymentAccountsInput) {
+      void input;
+      return Promise.resolve({
+        ...PAYMENT_ACCOUNTS_FIXTURE,
+      });
+    },
+    createPaymentAccount(input: HarborCreatePaymentAccountInput) {
+      return Promise.resolve(createMockPaymentAccount(input));
+    },
 
     submitDeposit(input: HarborSubmitDepositRequest) {
       return Promise.resolve({
@@ -206,14 +348,24 @@ export function createMockHarborProvider(): HarborProvider {
       });
     },
 
-    fetchPositions() {
+    fetchPositions(accountId: string) {
+      void accountId;
       return Promise.resolve({
         positions: POSITIONS_FIXTURE.positions,
         meta: POSITIONS_FIXTURE.meta,
       } satisfies PositionsResponse);
     },
 
-    fetchQuote(symbol: string) {
+    fetchPositionsByParty(partyId: string) {
+      void partyId;
+      return Promise.resolve({
+        positions: POSITIONS_FIXTURE.positions,
+        meta: POSITIONS_FIXTURE.meta,
+      } satisfies PositionsResponse);
+    },
+
+    fetchQuote(symbol: string, options?: FetchHarborQuoteOptions) {
+      void options;
       const normalizedSymbol = symbol.toUpperCase();
       const quote = QUOTES_FIXTURE.quotes[normalizedSymbol];
 
@@ -222,7 +374,22 @@ export function createMockHarborProvider(): HarborProvider {
       }
 
       return Promise.resolve({
-        quote,
+        quote: {
+          ...quote,
+          change: (quote.price * quote.dayChangePercent) / 100,
+          open: quote.price * 0.995,
+          high: quote.price * 1.01,
+          low: quote.price * 0.99,
+          close: quote.price * 0.997,
+          previousClose: quote.price / (1 + quote.dayChangePercent / 100),
+          volume: 1_250_000,
+          vwap: quote.price * 0.998,
+          tradingDay: new Date().toISOString().slice(0, 10),
+          marketSession: "OPEN" as const,
+          afterHoursPrice: null,
+          preMarketPrice: null,
+          updatedAt: new Date().toISOString(),
+        },
         meta: QUOTES_FIXTURE.meta,
       } satisfies QuoteResponse);
     },

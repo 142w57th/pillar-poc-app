@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 
-import dotenv from "dotenv";
-
-dotenv.config({ path: resolve(process.cwd(), "src/server/.env"), override: false });
+import Keyv from "keyv";
+import { getDatabaseUrlOrNull, getStorageMode, registerInMemoryReset } from "@/server/storage/storage-mode";
 
 type ClientRecord = {
   id: string;
@@ -33,78 +30,67 @@ type OAuthTokenRecord = {
   updatedAt: string;
 };
 
-type OrderRecord = {
-  id: string;
-  userId: string;
-  accountId: string;
-  provider: "mock" | "harbor";
-  orderId: string;
-  status: "accepted" | "rejected" | "pending";
-  submittedAt: string;
-  instrumentSymbol: string;
-  assetClass: "Equity" | "Crypto" | "Event Contract";
-  side: "BUY" | "SELL";
-  amountUsd: number;
-  pricePerUnit: number;
-  eventSide?: "YES" | "NO";
-  estimatedUnits?: number;
-  estimatedMaxReturnUsd?: number;
-  providerReference?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
 type KVStoreData = {
-  version: 1;
+  version: 2;
   clients: ClientRecord[];
   brokerAccounts: BrokerAccountRecord[];
   oauthTokens: OAuthTokenRecord[];
-  orders: OrderRecord[];
 };
 
-const DEFAULT_STORE_PATH = resolve(process.cwd(), "src/server/.store/kv.json");
-const STORE_PATH = resolve(process.cwd(), process.env.KV_STORE_FILE || DEFAULT_STORE_PATH);
+const STORE_KEY = "app:kv-store:data";
+let keyv: Keyv<KVStoreData> | null = null;
+
+function resolveKeyvStoreUrl(): string | null {
+  const keyvUrl = process.env.KEYV_POSTGRES_URL?.trim();
+  if (keyvUrl) {
+    return keyvUrl;
+  }
+  return getDatabaseUrlOrNull();
+}
+
+function getKeyv() {
+  if (!keyv) {
+    const url = resolveKeyvStoreUrl();
+    if (url && getStorageMode() === "postgres") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("@keyv/postgres");
+      const KeyvPostgres = mod.default ?? mod.KeyvPostgres ?? mod;
+      keyv = new Keyv<KVStoreData>({ store: new KeyvPostgres(url) });
+    } else {
+      keyv = new Keyv<KVStoreData>();
+    }
+  }
+  return keyv;
+}
 
 const EMPTY_STORE: KVStoreData = {
-  version: 1,
+  version: 2,
   clients: [],
   brokerAccounts: [],
   oauthTokens: [],
-  orders: [],
 };
 
 let writeQueue: Promise<void> = Promise.resolve();
 
-async function ensureStoreDir() {
-  await mkdir(dirname(STORE_PATH), { recursive: true });
+function cloneStore(data?: Partial<KVStoreData>): KVStoreData {
+  return {
+    version: 2,
+    clients: (data?.clients ?? []).filter((client): client is ClientRecord => Boolean(client.userId)),
+    brokerAccounts: data?.brokerAccounts ?? [],
+    oauthTokens: data?.oauthTokens ?? [],
+  };
 }
 
 async function readStore(): Promise<KVStoreData> {
-  await ensureStoreDir();
-
-  try {
-    const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as Partial<KVStoreData>;
-    return {
-      version: 1,
-      clients: parsed.clients ?? [],
-      brokerAccounts: parsed.brokerAccounts ?? [],
-      oauthTokens: parsed.oauthTokens ?? [],
-      orders: parsed.orders ?? [],
-    };
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
-      return structuredClone(EMPTY_STORE);
-    }
-    throw error;
+  const parsed = (await getKeyv().get(STORE_KEY)) as Partial<KVStoreData> | undefined;
+  if (!parsed) {
+    return structuredClone(EMPTY_STORE);
   }
+  return cloneStore(parsed);
 }
 
 async function writeStore(data: KVStoreData) {
-  await ensureStoreDir();
-  const tempPath = `${STORE_PATH}.tmp`;
-  await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  await rename(tempPath, STORE_PATH);
+  await getKeyv().set(STORE_KEY, data);
 }
 
 async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): Promise<T> {
@@ -114,13 +100,29 @@ async function mutateStore<T>(mutator: (data: KVStoreData) => T | Promise<T>): P
     await writeStore(store);
     return result;
   };
-
   const current = writeQueue.then(run, run);
   writeQueue = current.then(
     () => undefined,
     () => undefined,
   );
   return current;
+}
+
+if (getStorageMode() === "memory") {
+  registerInMemoryReset(() => {
+    getKeyv().clear();
+    writeQueue = Promise.resolve();
+  });
+}
+
+export async function clearUserData(userId: string) {
+  await mutateStore((store) => {
+    const client = store.clients.find((item) => item.userId === userId);
+    if (client) {
+      store.brokerAccounts = store.brokerAccounts.filter((item) => item.clientId !== client.id);
+      store.clients = store.clients.filter((item) => item.userId !== userId);
+    }
+  });
 }
 
 export async function listBrokerAccountsByUserId(userId: string) {
@@ -133,6 +135,18 @@ export async function listBrokerAccountsByUserId(userId: string) {
 
   return store.brokerAccounts
     .filter((item) => item.clientId === client.id)
+    .sort((a, b) => a.accountType.localeCompare(b.accountType))
+    .map((item) => ({
+      accountType: item.accountType,
+      externalAccountId: item.externalAccountId,
+    }));
+}
+
+export async function listBrokerAccountsByClientId(clientId: string) {
+  const store = await readStore();
+
+  return store.brokerAccounts
+    .filter((item) => item.clientId === clientId)
     .sort((a, b) => a.accountType.localeCompare(b.accountType))
     .map((item) => ({
       accountType: item.accountType,
@@ -178,12 +192,47 @@ export async function upsertBrokerAccountForUserId(userId: string, accountType: 
   });
 }
 
+export async function upsertBrokerAccountForClientId(clientId: string, accountType: string, externalAccountId: string) {
+  await mutateStore((store) => {
+    const now = new Date().toISOString();
+    const client = store.clients.find((item) => item.id === clientId);
+    if (!client) {
+      throw new Error(`No client found for id "${clientId}".`);
+    }
+
+    client.updatedAt = now;
+
+    const existing = store.brokerAccounts.find(
+      (item) => item.clientId === client.id && item.accountType === accountType,
+    );
+
+    if (existing) {
+      existing.externalAccountId = externalAccountId;
+      existing.updatedAt = now;
+      return;
+    }
+
+    store.brokerAccounts.push({
+      id: randomUUID(),
+      clientId: client.id,
+      accountType,
+      externalAccountId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
 export async function getClientByUserId(userId: string) {
   const store = await readStore();
   return store.clients.find((item) => item.userId === userId) ?? null;
 }
 
-export async function createClientForUserId(userId: string) {
+export async function getCurrentClient(userId: string) {
+  return getClientByUserId(userId);
+}
+
+export async function createClientForUserId(userId: string, clientId?: string) {
   return mutateStore((store) => {
     const existing = store.clients.find((item) => item.userId === userId);
     if (existing) {
@@ -192,7 +241,7 @@ export async function createClientForUserId(userId: string) {
 
     const now = new Date().toISOString();
     const client: ClientRecord = {
-      id: randomUUID(),
+      id: clientId ?? randomUUID(),
       userId,
       createdAt: now,
       updatedAt: now,
@@ -238,73 +287,4 @@ export async function upsertOAuthToken(params: {
       updatedAt: now,
     });
   });
-}
-
-export async function appendOrderForUser(params: {
-  userId: string;
-  accountId: string;
-  provider: "mock" | "harbor";
-  orderId: string;
-  status: "accepted" | "rejected" | "pending";
-  submittedAt: string;
-  instrumentSymbol: string;
-  assetClass: "Equity" | "Crypto" | "Event Contract";
-  side: "BUY" | "SELL";
-  amountUsd: number;
-  pricePerUnit: number;
-  eventSide?: "YES" | "NO";
-  estimatedUnits?: number;
-  estimatedMaxReturnUsd?: number;
-  providerReference?: string;
-}) {
-  return mutateStore((store) => {
-    const now = new Date().toISOString();
-    const record: OrderRecord = {
-      id: randomUUID(),
-      userId: params.userId,
-      accountId: params.accountId,
-      provider: params.provider,
-      orderId: params.orderId,
-      status: params.status,
-      submittedAt: params.submittedAt,
-      instrumentSymbol: params.instrumentSymbol,
-      assetClass: params.assetClass,
-      side: params.side,
-      amountUsd: params.amountUsd,
-      pricePerUnit: params.pricePerUnit,
-      eventSide: params.eventSide,
-      estimatedUnits: params.estimatedUnits,
-      estimatedMaxReturnUsd: params.estimatedMaxReturnUsd,
-      providerReference: params.providerReference,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    store.orders.push(record);
-    return record;
-  });
-}
-
-export async function listOrdersByUserId(userId: string) {
-  const store = await readStore();
-
-  return store.orders
-    .filter((item) => item.userId === userId)
-    .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))
-    .map((item) => ({
-      accountId: item.accountId,
-      provider: item.provider,
-      orderId: item.orderId,
-      status: item.status,
-      submittedAt: item.submittedAt,
-      instrumentSymbol: item.instrumentSymbol,
-      assetClass: item.assetClass,
-      side: item.side,
-      amountUsd: item.amountUsd,
-      pricePerUnit: item.pricePerUnit,
-      eventSide: item.eventSide,
-      estimatedUnits: item.estimatedUnits,
-      estimatedMaxReturnUsd: item.estimatedMaxReturnUsd,
-      providerReference: item.providerReference,
-    }));
 }

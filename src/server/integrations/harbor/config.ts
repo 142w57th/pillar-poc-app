@@ -3,14 +3,20 @@ export type HarborConfig = {
   authUrl: string;
   clientId: string;
   clientSecret: string;
+  partiesPath: string;
+  accountsPath: string;
+  accountTemplatesPath: string;
   balancesPath: string;
   partyBalancesPath: string;
   instrumentsPath: string;
   ordersPath: string;
   partyOrdersPath: string;
   positionsPath: string;
+  partyPositionsPath: string;
   quotesPath: string;
+  priceSnapshotApiPath: string;
   paymentInstructionsPath: string;
+  paymentAccountsPath: string;
   depositsPath: string;
   authScope: string | null;
   requestTimeoutMs: number;
@@ -39,14 +45,24 @@ export function getHarborConfig(): HarborConfig {
     authUrl: requireEnv("HARBOR_AUTH_URL"),
     clientId: requireEnv("HARBOR_CLIENT_ID"),
     clientSecret: requireEnv("HARBOR_CLIENT_SECRET"),
+    partiesPath: process.env.HARBOR_PARTIES_PATH || "/v2/parties",
+    accountsPath: process.env.HARBOR_ACCOUNTS_PATH || "/v2/accounts",
+    accountTemplatesPath: process.env.HARBOR_ACCOUNT_TEMPLATES_PATH || "/v1/account-templates",
     balancesPath: process.env.HARBOR_BALANCES_PATH || "/v2/financials/accounts/{accountId}/balances",
-    partyBalancesPath: process.env.HARBOR_PARTY_BALANCES_PATH || "/v2/financials/parties",
+    partyBalancesPath: process.env.HARBOR_PARTY_BALANCES_PATH || "/v2/financials/parties/{partyId}/balances",
     instrumentsPath: process.env.HARBOR_INSTRUMENTS_PATH || "/instruments",
     ordersPath: process.env.HARBOR_ORDERS_PATH || "/trading/v1/orders",
     partyOrdersPath: process.env.HARBOR_PARTY_ORDERS_PATH || "/v2/trading/parties",
-    positionsPath: process.env.HARBOR_POSITIONS_PATH || "/v2/financials/parties",
+    positionsPath: process.env.HARBOR_POSITIONS_PATH || "/v2/financials/accounts/{accountId}/positions",
+    partyPositionsPath:
+      process.env.HARBOR_PARTY_POISITIONS_PATH ||
+      process.env.HARBOR_PARTY_POSITIONS_PATH ||
+      "/v2/financials/parties/{partyId}/positions",
     quotesPath: process.env.HARBOR_QUOTES_PATH || "/quotes",
+    priceSnapshotApiPath:
+      process.env.HARBOR_PRICE_SNAPSHOT_API || "/v2/prices/{symbol}/snapshot",
     paymentInstructionsPath: process.env.HARBOR_PAYMENT_INSTRUCTIONS_PATH || "/braavos/v1/payments/payment-instructions",
+    paymentAccountsPath: process.env.HARBOR_PAYMENT_ACCOUNTS_PATH || "/v1/payments/payment-accounts",
     depositsPath: process.env.HARBOR_DEPOSITS_PATH || "/v1/payments/payment-instructions",
     authScope: process.env.HARBOR_AUTH_SCOPE || null,
     requestTimeoutMs: parsedTimeout,
