@@ -54,11 +54,58 @@ jobs:
           path: .next/
           retention-days: 1
 
-  docker-build:
-    name: Build Docker Image
+  prepare-meta:
+    name: Prepare Image Metadata
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name != 'pull_request'
+
+    outputs:
+      env_tag: ${{ steps.meta.outputs.env_tag }}
+      short_commit: ${{ steps.meta.outputs.short_commit }}
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      arch_tag_prefix: ${{ steps.meta.outputs.arch_tag_prefix }}
+
+    steps:
+      - name: Resolve image metadata
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV_TAG="prod"
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            ENV_TAG="staging"
+          elif [[ "${{ github.ref }}" == "refs/heads/temp-deployments" ]]; then
+            ENV_TAG="staging"
+          else
+            ENV_TAG="staging"
+          fi
+
+          SHORT_COMMIT=$(echo "${{ github.sha }}" | cut -c1-7)
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+          IMAGE_TAG="$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+          ARCH_TAG_PREFIX="${{ github.sha }}"
+
+          echo "env_tag=$ENV_TAG" >> "$GITHUB_OUTPUT"
+          echo "short_commit=$SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "arch_tag_prefix=$ARCH_TAG_PREFIX" >> "$GITHUB_OUTPUT"
+
+          cat "$GITHUB_OUTPUT"
+
+  docker-build:
+    name: Build Docker Image
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    needs: prepare-meta
+    if: github.event_name != 'pull_request'
+
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm64
+      fail-fast: false
 
     permissions:
       id-token: write
@@ -82,42 +129,89 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set environment tag
-        id: set-env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "env_tag=prod" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.ref }}" == "refs/heads/temp-deployments" ]]; then
-            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
-          else
-            echo "env_tag=staging" >> "$GITHUB_OUTPUT"
-          fi
-          cat "$GITHUB_OUTPUT"
-
-      - name: Build and push image to Amazon ECR
-        id: build-and-push
+      - name: Build and push architecture image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ENV_TAG: ${{ steps.set-env.outputs.env_tag }}
-          COMMIT_SHA: ${{ github.sha }}
+          ARCH: ${{ matrix.arch }}
+          ARCH_TAG_PREFIX: ${{ needs.prepare-meta.outputs.arch_tag_prefix }}
         run: |
-          docker build --tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" .
+          docker buildx build \
+            --platform "linux/$ARCH" \
+            --tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ARCH_TAG_PREFIX-$ARCH" \
+            --push \
+            .
 
-          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
-          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+  push-manifest:
+    name: Push Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-meta
+      - docker-build
+    if: github.event_name != 'pull_request'
 
-          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-latest"
-          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$SHORT_COMMIT"
-          docker tag "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+    permissions:
+      id-token: write
+      contents: read
 
-          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$COMMIT_SHA"
-          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-latest"
-          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$SHORT_COMMIT"
-          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+    outputs:
+      image_tag: ${{ steps.manifest.outputs.image_tag }}
 
-          echo "image_tag=$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActionsSession
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create and push multi-arch manifests
+        id: manifest
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ENV_TAG: ${{ needs.prepare-meta.outputs.env_tag }}
+          SHORT_COMMIT: ${{ needs.prepare-meta.outputs.short_commit }}
+          TIMESTAMP: ${{ needs.prepare-meta.outputs.timestamp }}
+          IMAGE_TAG: ${{ needs.prepare-meta.outputs.image_tag }}
+          ARCH_TAG_PREFIX: ${{ needs.prepare-meta.outputs.arch_tag_prefix }}
+        run: |
+          ECR_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}"
+
+          AMD64_IMAGE="$ECR_IMAGE:$ARCH_TAG_PREFIX-amd64"
+          ARM64_IMAGE="$ECR_IMAGE:$ARCH_TAG_PREFIX-arm64"
+
+          docker buildx imagetools create \
+            --tag "$ECR_IMAGE:${{ github.sha }}" \
+            "$AMD64_IMAGE" \
+            "$ARM64_IMAGE"
+
+          docker buildx imagetools create \
+            --tag "$ECR_IMAGE:$ENV_TAG-latest" \
+            "$AMD64_IMAGE" \
+            "$ARM64_IMAGE"
+
+          docker buildx imagetools create \
+            --tag "$ECR_IMAGE:$ENV_TAG-$SHORT_COMMIT" \
+            "$AMD64_IMAGE" \
+            "$ARM64_IMAGE"
+
+          docker buildx imagetools create \
+            --tag "$ECR_IMAGE:$IMAGE_TAG" \
+            "$AMD64_IMAGE" \
+            "$ARM64_IMAGE"
+
+          docker buildx imagetools inspect "$ECR_IMAGE:$IMAGE_TAG"
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Call Deploy PR workflow
         uses: actions/github-script@v8
@@ -131,9 +225,9 @@ jobs:
               ref: 'main',
               inputs: {
                 dry_run: 'false',
-                environment: '${{ steps.set-env.outputs.env_tag }}',
+                environment: '${{ needs.prepare-meta.outputs.env_tag }}',
                 application: 'pillar-poc-app',
-                tag: '${{ steps.build-and-push.outputs.image_tag }}',
+                tag: '${{ steps.manifest.outputs.image_tag }}',
                 caller: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
               }
             })

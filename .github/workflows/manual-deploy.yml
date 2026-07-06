@@ -1,0 +1,274 @@
+name: Manual Build and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  NODE_VERSION: "20"
+  ECR_REPOSITORY: wts-systems/fe/pillar-poc-app
+  AWS_ROLE_ARN: arn:aws:iam::767397818933:role/github-actions/GitHubPillarPocAppOIDC
+  APPLICATION_NAME: pillar-poc-app
+
+jobs:
+  validate-branch:
+    name: Validate Selected Branch
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    outputs:
+      env_tag: ${{ steps.validate.outputs.env_tag }}
+
+    steps:
+      - name: Validate branch for environment
+        id: validate
+        run: |
+          ENV_TAG="${{ github.event.inputs.env }}"
+          BRANCH="${{ github.ref_name }}"
+
+          echo "Selected environment: $ENV_TAG"
+          echo "Selected branch: $BRANCH"
+
+          if [[ "$ENV_TAG" == "prod" && "$BRANCH" != "main" ]]; then
+            echo "prod deployments must be run from the main branch"
+            exit 1
+          fi
+
+          if [[ "$ENV_TAG" == "staging" && "$BRANCH" != "staging" ]]; then
+            echo "staging deployments must be run from the staging branch"
+            exit 1
+          fi
+
+          if [[ "$ENV_TAG" == "dev" && "$BRANCH" != "develop" ]]; then
+            echo "dev deployments must be run from the develop branch"
+            exit 1
+          fi
+
+          echo "env_tag=$ENV_TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and Validate
+    runs-on: ubuntu-latest
+    needs: validate-branch
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --include=optional
+
+      - name: Install Linux native CSS bindings for runner
+        run: |
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "x86_64" ]; then NATIVE_ARCH="x64";
+          elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then NATIVE_ARCH="arm64";
+          else echo "Unsupported architecture: $ARCH"; exit 1; fi
+
+          if ldd --version 2>/dev/null | grep -qi "musl"; then LIBC="musl"; else LIBC="gnu"; fi
+
+          npm install --no-save \
+            "lightningcss-linux-${NATIVE_ARCH}-${LIBC}@1.32.0" \
+            "@tailwindcss/oxide-linux-${NATIVE_ARCH}-${LIBC}@4.2.2"
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: .next/
+          retention-days: 1
+
+  prepare-meta:
+    name: Prepare Image Metadata
+    runs-on: ubuntu-latest
+    needs:
+      - validate-branch
+      - build
+
+    permissions:
+      contents: read
+
+    outputs:
+      env_tag: ${{ steps.meta.outputs.env_tag }}
+      short_commit: ${{ steps.meta.outputs.short_commit }}
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      arch_tag_prefix: ${{ steps.meta.outputs.arch_tag_prefix }}
+
+    steps:
+      - name: Resolve image metadata
+        id: meta
+        run: |
+          ENV_TAG="${{ needs.validate-branch.outputs.env_tag }}"
+          SHORT_COMMIT=$(echo "${{ github.sha }}" | cut -c1-7)
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+          IMAGE_TAG="$ENV_TAG-$TIMESTAMP-$SHORT_COMMIT"
+          ARCH_TAG_PREFIX="$ENV_TAG-${{ github.sha }}"
+
+          echo "env_tag=$ENV_TAG" >> "$GITHUB_OUTPUT"
+          echo "short_commit=$SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "arch_tag_prefix=$ARCH_TAG_PREFIX" >> "$GITHUB_OUTPUT"
+
+          cat "$GITHUB_OUTPUT"
+
+  docker-build:
+    name: Build Docker Image
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    needs: prepare-meta
+
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm64
+      fail-fast: false
+
+    permissions:
+      id-token: write
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Debug build context
+        run: |
+          echo "Application: ${{ env.APPLICATION_NAME }}"
+          echo "Architecture: ${{ matrix.arch }}"
+          echo "Environment: ${{ needs.prepare-meta.outputs.env_tag }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActionsSession
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push architecture image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ARCH: ${{ matrix.arch }}
+          ARCH_TAG_PREFIX: ${{ needs.prepare-meta.outputs.arch_tag_prefix }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ECR_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}"
+
+          docker buildx build \
+            --platform "linux/$ARCH" \
+            --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN \
+            --tag "$ECR_IMAGE:$ARCH_TAG_PREFIX-$ARCH" \
+            --push \
+            .
+
+  push-manifest:
+    name: Push Multi-Arch Manifest and Deploy
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-meta
+      - docker-build
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      image_tag: ${{ steps.manifest.outputs.image_tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActionsSession
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create and push multi-arch manifests
+        id: manifest
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ENV_TAG: ${{ needs.prepare-meta.outputs.env_tag }}
+          SHORT_COMMIT: ${{ needs.prepare-meta.outputs.short_commit }}
+          IMAGE_TAG: ${{ needs.prepare-meta.outputs.image_tag }}
+          ARCH_TAG_PREFIX: ${{ needs.prepare-meta.outputs.arch_tag_prefix }}
+        run: |
+          ECR_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}"
+
+          AMD64_IMAGE="$ECR_IMAGE:$ARCH_TAG_PREFIX-amd64"
+          ARM64_IMAGE="$ECR_IMAGE:$ARCH_TAG_PREFIX-arm64"
+
+          for TAG in "$ENV_TAG-latest" "$ENV_TAG-$SHORT_COMMIT" "$IMAGE_TAG"; do
+            docker buildx imagetools create \
+              --tag "$ECR_IMAGE:$TAG" \
+              "$AMD64_IMAGE" \
+              "$ARM64_IMAGE"
+
+            echo "Pushed manifest: $TAG"
+          done
+
+          docker buildx imagetools inspect "$ECR_IMAGE:$IMAGE_TAG"
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Call Deploy PR workflow
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITOPS_TRIGGER_TOKEN }}
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: '${{ github.repository_owner }}',
+              repo: 'wts-eks-gitops',
+              workflow_id: 'update-image-tag.yaml',
+              ref: 'main',
+              inputs: {
+                dry_run: 'false',
+                environment: '${{ needs.prepare-meta.outputs.env_tag }}',
+                application: '${{ env.APPLICATION_NAME }}',
+                tag: '${{ steps.manifest.outputs.image_tag }}',
+                caller: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+              }
+            })
