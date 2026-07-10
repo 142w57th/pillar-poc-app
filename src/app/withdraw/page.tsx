@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
 import { toCanonicalAssetClassLabel } from "@/lib/account-asset-class";
@@ -62,6 +62,7 @@ function formatAccountSelectLabel(accountType: string, accountId: string) {
 }
 
 export default function WithdrawPage() {
+  const queryClient = useQueryClient();
   const [sourceAccountId, setSourceAccountId] = useState("");
   const [destinationPaymentAccountId, setDestinationPaymentAccountId] = useState("");
   const [amountInput, setAmountInput] = useState("");
@@ -153,6 +154,17 @@ export default function WithdrawPage() {
       return response.data;
     },
     onSuccess: (data) => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-for-withdraw"] }),
+        queryClient.invalidateQueries({ queryKey: ["balances-buying-power"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions"] }),
+        queryClient.invalidateQueries({ queryKey: ["holdings-live-quotes"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["withdraw-payment-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["deposit-destination-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["withdraw-destination-accounts"] }),
+      ]);
       setIsSubmitSuccess(true);
       setSubmittedAmount(data.deposit.amountUsd);
       setLastResultTone("positive");

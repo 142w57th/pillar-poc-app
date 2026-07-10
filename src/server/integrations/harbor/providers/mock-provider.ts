@@ -296,7 +296,7 @@ export function createMockHarborProvider(): HarborProvider {
     },
 
     submitOrder(input: TradeOrderSubmitRequest) {
-      const estimatedUnits = input.amountUsd / input.pricePerUnit;
+      const estimatedUnits = input.quantity;
 
       return Promise.resolve({
         provider: "mock" as const,

@@ -13,9 +13,11 @@ export async function createMockHarborParty(input: HarborCreatePartyInput): Prom
   assertRequired(input.personalInformation.phone.countryCode, "personalInformation.phone.countryCode");
   assertRequired(input.personalInformation.phone.phoneNumber, "personalInformation.phone.phoneNumber");
 
+  const generatedClientId = crypto.randomUUID();
+
   return {
     externalId: input.externalId ?? `mock-party-${Date.now()}`,
-    partyId: crypto.randomUUID(),
+    clientId: generatedClientId,
     errors: [],
   };
 }

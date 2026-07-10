@@ -204,8 +204,8 @@ export type CreateAccountRequestPayload = {
       countryCode: string;
     };
   };
-  suitability: {
-    employmentType: string;
+  suitability?: {
+    employmentType?: string;
     occupation?: string;
     businessType?: string;
     employer?: string;
@@ -223,9 +223,9 @@ export type CreateAccountRequestPayload = {
     timeHorizonMinYears?: string;
     timeHorizonMaxYears?: string;
     dividendReinvestmentInstruction?: string;
-    investmentObjective: string;
+    investmentObjective?: string;
     investmentObjectives?: string[];
-    riskTolerance: string;
+    riskTolerance?: string;
   };
 };
 
@@ -240,7 +240,7 @@ export type SubmitOrderRequestPayload = {
   instrumentSymbol: string;
   assetClass: "Equity" | "Crypto" | "Event Contract";
   side: "BUY" | "SELL";
-  amountUsd: number;
+  quantity: number;
   pricePerUnit: number;
   eventSide?: "YES" | "NO";
 };
@@ -253,7 +253,7 @@ export type SubmitOrderPayload = {
     instrumentSymbol: string;
     assetClass: "Equity" | "Crypto" | "Event Contract";
     side: "BUY" | "SELL";
-    amountUsd: number;
+    quantity: number;
     pricePerUnit: number;
     eventSide?: "YES" | "NO";
     estimatedUnits?: number;

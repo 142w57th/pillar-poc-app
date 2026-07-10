@@ -5,9 +5,10 @@ import { getHarborConfig } from "@/server/integrations/harbor/config";
 
 type HarborCreateAccountRequest = {
   data: {
+    name: string;
     externalId: string;
     accountTemplateCode: string;
-    investmentProfile: {
+    investmentProfile?: {
       objectives: Array<{
         objective: "INCOME" | "GROWTH" | "SPECULATION" | "TRADING";
       }>;
@@ -73,9 +74,9 @@ type HarborCreateAccountResponse = {
 export type HarborCreateAccountInput = {
   partyId: string;
   accountTemplateCode: string;
-  investmentObjective: string;
+  investmentObjective?: string;
   investmentObjectives?: string[];
-  riskTolerance: string;
+  riskTolerance?: string;
   sourceOfFunds?: string;
   sourceOfFundsItems?: string[];
   timeHorizonMinYears?: string;
@@ -154,6 +155,8 @@ export function buildHarborCreateAccountRequest(input: HarborCreateAccountInput)
   const minYears = normalizeYears(input.timeHorizonMinYears);
   const maxYears = normalizeYears(input.timeHorizonMaxYears);
   const dividendReinvestmentInstruction = mapDividendInstruction(input.dividendReinvestmentInstruction);
+  const isDigitalAssetsTemplate = input.accountTemplateCode === "DIGITAL_ASSETS_STANDARD";
+  const includeAccountSuitability = !isDigitalAssetsTemplate;
   const sourceSelections = Array.from(
     new Set(
       [input.sourceOfFunds, ...(input.sourceOfFundsItems ?? [])]
@@ -162,7 +165,7 @@ export function buildHarborCreateAccountRequest(input: HarborCreateAccountInput)
     ),
   );
   const sourceOfFunds =
-    sourceSelections.length > 0
+    includeAccountSuitability && sourceSelections.length > 0
       ? {
           items: sourceSelections.map((item) => ({
             source: mapSourceOfFunds(item),
@@ -179,7 +182,6 @@ export function buildHarborCreateAccountRequest(input: HarborCreateAccountInput)
   const normalizedObjectives = (objectiveSelections.length > 0 ? objectiveSelections : ["INCOME"]).map((item) =>
     mapInvestmentObjective(item),
   );
-  const isDigitalAssetsTemplate = input.accountTemplateCode === "DIGITAL_ASSETS_STANDARD";
   const digitalAssetsAttestations: HarborCreateAccountRequest["data"]["attestations"] = isDigitalAssetsTemplate
     ? [
         {
@@ -198,19 +200,24 @@ export function buildHarborCreateAccountRequest(input: HarborCreateAccountInput)
 
   return {
     data: {
+      name: "My Account",
       externalId: randomUUID(),
       accountTemplateCode: input.accountTemplateCode,
-      investmentProfile: {
-        objectives: normalizedObjectives.map((objective) => ({
-          objective,
-        })),
-        riskTolerance: mapRiskTolerance(input.riskTolerance),
-        ...(typeof minYears === "number" && typeof maxYears === "number"
-          ? { timeHorizon: { minYears, maxYears } }
-          : {}),
-      },
+      ...(includeAccountSuitability
+        ? {
+            investmentProfile: {
+              objectives: normalizedObjectives.map((objective) => ({
+                objective,
+              })),
+              riskTolerance: mapRiskTolerance(input.riskTolerance ?? "moderate"),
+              ...(typeof minYears === "number" && typeof maxYears === "number"
+                ? { timeHorizon: { minYears, maxYears } }
+                : {}),
+            },
+          }
+        : {}),
       ...(sourceOfFunds ? { sourceOfFunds } : {}),
-      ...(dividendReinvestmentInstruction ? { dividendReinvestmentInstruction } : {}),
+      ...(includeAccountSuitability && dividendReinvestmentInstruction ? { dividendReinvestmentInstruction } : {}),
       ...(digitalAssetsAttestations ? { attestations: digitalAssetsAttestations } : {}),
       relationships: [
         {

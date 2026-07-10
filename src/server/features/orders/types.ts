@@ -4,7 +4,7 @@ export type SubmitOrderInput = {
   instrumentSymbol: string;
   assetClass: TradeAssetClass;
   side: TradeSide;
-  amountUsd: number;
+  quantity: number;
   pricePerUnit: number;
   eventSide?: EventSide;
 };
@@ -17,7 +17,7 @@ export type SubmitOrderResult = {
     instrumentSymbol: string;
     assetClass: TradeAssetClass;
     side: TradeSide;
-    amountUsd: number;
+    quantity: number;
     pricePerUnit: number;
     eventSide?: EventSide;
     estimatedUnits?: number;

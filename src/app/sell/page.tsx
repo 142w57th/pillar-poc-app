@@ -67,8 +67,8 @@ function toQuoteAssetClassParam(value: AssetClass | undefined) {
   return "EQUITY";
 }
 
-function parseAmount(value: string) {
-  const parsed = Number(value.replace(/[^0-9.]/g, ""));
+function parseQuantity(value: string) {
+  const parsed = Number(value.replace(/[^\d]/g, ""));
   if (!Number.isFinite(parsed) || parsed < 0) {
     return 0;
   }
@@ -77,14 +77,7 @@ function parseAmount(value: string) {
 }
 
 function sanitizeAmountInput(value: string) {
-  const normalized = value.replace(/[^0-9.]/g, "");
-  const firstDotIndex = normalized.indexOf(".");
-  if (firstDotIndex === -1) {
-    return normalized;
-  }
-  const beforeDot = normalized.slice(0, firstDotIndex + 1);
-  const afterDot = normalized.slice(firstDotIndex + 1).replace(/\./g, "");
-  return `${beforeDot}${afterDot}`;
+  return value.replace(/[^\d]/g, "");
 }
 
 function formatCurrency(value: number) {
@@ -94,14 +87,6 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-function formatUnits(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
-    return "0.0000";
-  }
-
-  return value.toFixed(4);
 }
 
 function toCryptoPairLabel(symbol: string) {
@@ -124,15 +109,6 @@ function toCryptoPairLabel(symbol: string) {
   return symbol;
 }
 
-function toCryptoBaseAsset(symbol: string) {
-  const pairLabel = toCryptoPairLabel(symbol);
-  if (pairLabel.includes("/")) {
-    return pairLabel.split("/")[0] ?? symbol;
-  }
-
-  return pairLabel;
-}
-
 function SellPageContent() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -146,7 +122,7 @@ function SellPageContent() {
     null,
   );
   const [eventSide, setEventSide] = useState<EventSide>("YES");
-  const [amountInput, setAmountInput] = useState("");
+  const [quantityInput, setQuantityInput] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState<OrderFeedback | null>(
     null,
@@ -233,7 +209,7 @@ function SellPageContent() {
   const eventYesPrice = quoteData?.quote.eventPricing?.yesPrice ?? 0;
   const eventNoPrice = quoteData?.quote.eventPricing?.noPrice ?? 0;
 
-  const amount = useMemo(() => parseAmount(amountInput), [amountInput]);
+  const quantity = useMemo(() => parseQuantity(quantityInput), [quantityInput]);
   const isEventContract = resolvedAssetClass === "Event Contract";
 
   const eventSidePrice = useMemo(() => {
@@ -244,25 +220,14 @@ function SellPageContent() {
     return eventSide === "YES" ? eventYesPrice : eventNoPrice;
   }, [eventSide, isEventContract, eventYesPrice, eventNoPrice]);
 
-  const estimatedUnitsToSell = useMemo(() => {
-    if (isEventContract || quotePrice <= 0) {
-      return 0;
-    }
-
-    return amount / quotePrice;
-  }, [amount, isEventContract, quotePrice]);
-
-  const estimatedContractsToSell = useMemo(() => {
-    if (!isEventContract || !eventSidePrice || eventSidePrice <= 0) {
-      return 0;
-    }
-
-    return amount / eventSidePrice;
-  }, [amount, eventSidePrice, isEventContract]);
-
-  const exceedsInvestedBalance = amount > investedBalance;
-  const isAmountEmpty = amount <= 0;
-  const canSubmit = !isAmountEmpty && !exceedsInvestedBalance;
+  const orderNotionalUsd = useMemo(() => {
+    const pricePerUnit = isEventContract ? (eventSidePrice ?? 0) : quotePrice;
+    if (!Number.isFinite(pricePerUnit) || pricePerUnit <= 0) return 0;
+    return quantity * pricePerUnit;
+  }, [eventSidePrice, isEventContract, quantity, quotePrice]);
+  const exceedsInvestedBalance = orderNotionalUsd > investedBalance;
+  const isQuantityEmpty = quantity <= 0;
+  const canSubmit = !isQuantityEmpty && !exceedsInvestedBalance;
 
   const submitButtonLabel = isEventContract ? `SELL ${eventSide}` : "SELL";
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -290,7 +255,7 @@ function SellPageContent() {
             instrumentSymbol: selectedInstrument.symbol,
             assetClass: resolvedAssetClass,
             side: "SELL",
-            amountUsd: amount,
+            quantity,
             pricePerUnit,
             eventSide: isEventContract ? eventSide : undefined,
           }),
@@ -373,7 +338,7 @@ function SellPageContent() {
                 type="button"
                 onClick={() => {
                   setOrderFeedback(null);
-                  setAmountInput("");
+                  setQuantityInput("");
                 }}
                 className="border-app bg-surface-2 text-app-primary rounded-xl border px-4 py-2.5 text-sm font-semibold transition hover:opacity-90"
               >
@@ -502,35 +467,33 @@ function SellPageContent() {
 
         <div className="border-app-soft border-t pt-4">
           <label
-            htmlFor="sell-amount"
+            htmlFor="sell-quantity"
             className="text-app-primary block text-sm font-semibold"
           >
-            How much?
+            Quantity
           </label>
           <div
             className={`bg-surface-1 mt-2 flex items-center rounded-lg border px-3 ${
               exceedsInvestedBalance ? "border-negative" : "border-app"
             }`}
           >
-            <span className="text-app-secondary mr-1 text-lg font-semibold">
-              $
-            </span>
             <input
-              id="sell-amount"
+              id="sell-quantity"
               type="text"
-              inputMode="decimal"
-              value={amountInput}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={quantityInput}
               onChange={(event) =>
-                setAmountInput(sanitizeAmountInput(event.target.value))
+                setQuantityInput(sanitizeAmountInput(event.target.value))
               }
-              placeholder="10"
+              placeholder="1"
               className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </div>
 
           {exceedsInvestedBalance ? (
             <p className="text-negative mt-1.5 text-xs">
-              Amount exceeds your invested balance of{" "}
+              Estimated notional {formatCurrency(orderNotionalUsd)} exceeds your invested balance of{" "}
               {formatCurrency(investedBalance)}.
             </p>
           ) : null}
@@ -560,25 +523,6 @@ function SellPageContent() {
             </div>
           </div>
         ) : null}
-
-        <div className="border-app-soft mt-4 border-t pt-4">
-          <p className="text-app-primary text-sm font-semibold">
-            You sell (est.)
-          </p>
-          <div className="border-app bg-surface-2 mt-2 rounded-lg border px-3 py-3">
-            {isEventContract ? (
-              <p className="text-app-primary text-sm font-semibold">
-                Estimated {formatUnits(estimatedContractsToSell)} contracts at{" "}
-                {eventSide}
-              </p>
-            ) : (
-              <p className="text-app-primary text-sm font-semibold">
-                {formatUnits(estimatedUnitsToSell)}{" "}
-                {toCryptoBaseAsset(selectedInstrument.symbol)}
-              </p>
-            )}
-          </div>
-        </div>
 
         <button
           type="submit"

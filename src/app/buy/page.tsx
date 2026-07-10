@@ -58,8 +58,8 @@ function toOrderAssetClass(value: string | null): AssetClass | undefined {
   return undefined;
 }
 
-function parseAmount(value: string) {
-  const parsed = Number(value.replace(/[^0-9.]/g, ""));
+function parseQuantity(value: string) {
+  const parsed = Number(value.replace(/[^\d]/g, ""));
   if (!Number.isFinite(parsed) || parsed < 0) {
     return 0;
   }
@@ -74,14 +74,6 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-function formatCryptoUnits(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
-    return "0.0000";
-  }
-
-  return value.toFixed(4);
 }
 
 function toCryptoPairLabel(symbol: string) {
@@ -104,15 +96,6 @@ function toCryptoPairLabel(symbol: string) {
   return normalizedSymbol;
 }
 
-function toCryptoBaseAsset(symbol: string) {
-  const pairLabel = toCryptoPairLabel(symbol);
-  if (pairLabel.includes("/")) {
-    return pairLabel.split("/")[0] ?? symbol;
-  }
-
-  return pairLabel;
-}
-
 function BuyPageContent() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -122,7 +105,7 @@ function BuyPageContent() {
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [comingSoonMessage, setComingSoonMessage] = useState<string | null>(null);
   const [eventSide, setEventSide] = useState<EventSide>("YES");
-  const [amountInput, setAmountInput] = useState("");
+  const [quantityInput, setQuantityInput] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState<OrderFeedback | null>(null);
 
@@ -186,7 +169,7 @@ function BuyPageContent() {
   const eventNoPrice = quoteData?.quote.eventPricing?.noPrice ?? 0;
   const buyingPower = balancesData?.aggregated.buyingPower ?? FALLBACK_BUYING_POWER;
 
-  const amount = useMemo(() => parseAmount(amountInput), [amountInput]);
+  const quantity = useMemo(() => parseQuantity(quantityInput), [quantityInput]);
   const isEventContract = resolvedAssetClass === "Event Contract";
 
   const eventSidePrice = useMemo(() => {
@@ -197,26 +180,14 @@ function BuyPageContent() {
     return eventSide === "YES" ? eventYesPrice : eventNoPrice;
   }, [eventSide, isEventContract, eventYesPrice, eventNoPrice]);
 
-  const estimatedCryptoAmount = useMemo(() => {
-    if (isEventContract || quotePrice <= 0) {
-      return 0;
-    }
-
-    return amount / quotePrice;
-  }, [amount, isEventContract, quotePrice]);
-
-  const eventMaxReturn = useMemo(() => {
-    if (!isEventContract || !eventSidePrice || eventSidePrice <= 0) {
-      return 0;
-    }
-
-    const contractCount = amount / eventSidePrice;
-    return contractCount;
-  }, [amount, eventSidePrice, isEventContract]);
-
-  const exceedsBuyingPower = amount > buyingPower;
-  const isAmountEmpty = amount <= 0;
-  const canSubmit = !isAmountEmpty && !exceedsBuyingPower;
+  const orderNotionalUsd = useMemo(() => {
+    const pricePerUnit = isEventContract ? (eventSidePrice ?? 0) : quotePrice;
+    if (!Number.isFinite(pricePerUnit) || pricePerUnit <= 0) return 0;
+    return quantity * pricePerUnit;
+  }, [eventSidePrice, isEventContract, quantity, quotePrice]);
+  const exceedsBuyingPower = orderNotionalUsd > buyingPower;
+  const isQuantityEmpty = quantity <= 0;
+  const canSubmit = !isQuantityEmpty && !exceedsBuyingPower;
 
   const submitButtonLabel = isEventContract ? `BUY ${eventSide}` : "BUY";
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -240,7 +211,7 @@ function BuyPageContent() {
           instrumentSymbol: selectedInstrument.symbol,
           assetClass: resolvedAssetClass,
           side: "BUY",
-          amountUsd: amount,
+          quantity,
           pricePerUnit,
           eventSide: isEventContract ? eventSide : undefined,
         }),
@@ -305,7 +276,7 @@ function BuyPageContent() {
                 type="button"
                 onClick={() => {
                   setOrderFeedback(null);
-                  setAmountInput("");
+                  setQuantityInput("");
                 }}
                 className="border-app bg-surface-2 text-app-primary rounded-xl border px-4 py-2.5 text-sm font-semibold transition hover:opacity-90"
               >
@@ -412,25 +383,25 @@ function BuyPageContent() {
         </div>
 
         <div className="border-app-soft border-t pt-4">
-          <label htmlFor="order-amount" className="text-app-primary block text-sm font-semibold">
-            How much?
+          <label htmlFor="order-quantity" className="text-app-primary block text-sm font-semibold">
+            Quantity
           </label>
           <div className={`bg-surface-1 mt-2 flex items-center rounded-lg border px-3 ${exceedsBuyingPower ? "border-negative" : "border-app"}`}>
-            <span className="text-app-secondary mr-1 text-lg font-semibold">$</span>
             <input
-              id="order-amount"
+              id="order-quantity"
               type="text"
-              inputMode="decimal"
-              value={amountInput}
-              onChange={(event) => setAmountInput(event.target.value)}
-              placeholder="100"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={quantityInput}
+              onChange={(event) => setQuantityInput(event.target.value.replace(/[^\d]/g, ""))}
+              placeholder="1"
               className="text-app-primary placeholder:text-app-muted h-10 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </div>
 
           {exceedsBuyingPower ? (
             <p className="text-negative mt-1.5 text-xs">
-              Amount exceeds your buying power of {formatCurrency(buyingPower)}.
+              Estimated notional {formatCurrency(orderNotionalUsd)} exceeds buying power of {formatCurrency(buyingPower)}.
             </p>
           ) : null}
 
@@ -460,21 +431,6 @@ function BuyPageContent() {
             </div>
           </div>
         ) : null}
-
-        <div className="border-app-soft mt-4 border-t pt-4">
-          <p className="text-app-primary text-sm font-semibold">{isEventContract ? "You get:" : "You get (est.)"}</p>
-          <div className="border-app bg-surface-2 mt-2 rounded-lg border px-3 py-3">
-            {isEventContract ? (
-              <p className="text-app-primary text-sm font-semibold">
-                Max payout {formatCurrency(eventMaxReturn)} if outcome resolves {eventSide}
-              </p>
-            ) : (
-              <p className="text-app-primary text-sm font-semibold">
-                {formatCryptoUnits(estimatedCryptoAmount)} {toCryptoBaseAsset(selectedInstrument.symbol)}
-              </p>
-            )}
-          </div>
-        </div>
 
         <button
           type="submit"
