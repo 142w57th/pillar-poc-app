@@ -31,7 +31,7 @@ function parseSubmitOrderPayload(body: unknown): SubmitOrderInput {
     instrumentSymbol: String(payload.instrumentSymbol ?? ""),
     assetClass,
     side,
-    amountUsd: toFiniteNumber(payload.amountUsd),
+    quantity: toFiniteNumber(payload.quantity),
     pricePerUnit: toFiniteNumber(payload.pricePerUnit),
     eventSide,
   };

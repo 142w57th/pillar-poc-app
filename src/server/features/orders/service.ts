@@ -33,8 +33,12 @@ function validateSubmitOrderInput(input: SubmitOrderInput) {
     throw new OrdersServiceError("INVALID_ORDER_INPUT", "side must be BUY or SELL.", 400);
   }
 
-  if (!Number.isFinite(input.amountUsd) || input.amountUsd <= 0) {
-    throw new OrdersServiceError("INVALID_ORDER_INPUT", "amountUsd must be a positive number.", 400);
+  if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
+    throw new OrdersServiceError("INVALID_ORDER_INPUT", "quantity must be a positive number.", 400);
+  }
+
+  if (!Number.isInteger(input.quantity)) {
+    throw new OrdersServiceError("INVALID_ORDER_INPUT", "quantity must be a whole number.", 400);
   }
 
   if (!Number.isFinite(input.pricePerUnit) || input.pricePerUnit <= 0) {
@@ -91,7 +95,7 @@ export async function submitOrder(userId: string, input: SubmitOrderInput): Prom
       instrumentSymbol: input.instrumentSymbol,
       assetClass: input.assetClass,
       side: input.side,
-      amountUsd: input.amountUsd,
+      quantity: input.quantity,
       pricePerUnit: input.pricePerUnit,
       eventSide: input.eventSide,
       externalId,
@@ -114,7 +118,7 @@ export async function submitOrder(userId: string, input: SubmitOrderInput): Prom
       instrumentSymbol: input.instrumentSymbol,
       assetClass: input.assetClass,
       side: input.side,
-      amountUsd: input.amountUsd,
+      quantity: input.quantity,
       pricePerUnit: input.pricePerUnit,
       eventSide: input.eventSide,
       estimatedUnits: orderResult.estimatedUnits,

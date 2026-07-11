@@ -111,6 +111,7 @@ export async function createAccount(userId: string, request: CreateAccountReques
   }
 
   const accountTemplateCode = resolveAccountTemplateCode(request.accountType);
+  const requiresAccountSuitability = accountTemplateCode === ACCOUNT_TEMPLATE_CODES.EQUITY;
 
   if (!VALID_ACCOUNT_TYPES.includes(accountTemplateCode as (typeof VALID_ACCOUNT_TYPES)[number])) {
     throw new OnboardingServiceError(
@@ -124,7 +125,7 @@ export async function createAccount(userId: string, request: CreateAccountReques
     request.suitability?.investmentObjectives?.[0]?.trim() ||
     "";
 
-  if (!primaryInvestmentObjective || !request.suitability?.riskTolerance) {
+  if (requiresAccountSuitability && (!primaryInvestmentObjective || !request.suitability?.riskTolerance)) {
     throw new OnboardingServiceError(
       "MISSING_SUITABILITY",
       "Suitability fields (investmentObjectives/investmentObjective, riskTolerance) are required.",
@@ -199,9 +200,10 @@ export async function createAccount(userId: string, request: CreateAccountReques
           annualIncome: request.suitability.annualIncome,
           liquidNetWorth: request.suitability.liquidNetWorth,
           totalNetWorth: request.suitability.totalNetWorth,
+          marginalTaxRate: request.suitability.marginalTaxRate,
         },
       });
-      client = await createClientForUserId(userId, party.partyId);
+      client = await createClientForUserId(userId, party.clientId);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected party create integration error.";
       if (message.toLowerCase().includes("required") || message.toLowerCase().includes("invalid")) {
@@ -216,14 +218,16 @@ export async function createAccount(userId: string, request: CreateAccountReques
     const createdAccount = await harborProvider.createAccount({
       partyId: client.id,
       accountTemplateCode,
-      investmentObjective: primaryInvestmentObjective,
-      investmentObjectives: request.suitability.investmentObjectives,
-      riskTolerance: request.suitability.riskTolerance,
-      sourceOfFunds: request.suitability.sourceOfFunds,
-      sourceOfFundsItems: request.suitability.sourceOfFundsItems,
-      timeHorizonMinYears: request.suitability.timeHorizonMinYears,
-      timeHorizonMaxYears: request.suitability.timeHorizonMaxYears,
-      dividendReinvestmentInstruction: request.suitability.dividendReinvestmentInstruction,
+      investmentObjective: requiresAccountSuitability ? primaryInvestmentObjective : undefined,
+      investmentObjectives: requiresAccountSuitability ? request.suitability?.investmentObjectives : undefined,
+      riskTolerance: requiresAccountSuitability ? request.suitability?.riskTolerance : undefined,
+      sourceOfFunds: requiresAccountSuitability ? request.suitability?.sourceOfFunds : undefined,
+      sourceOfFundsItems: requiresAccountSuitability ? request.suitability?.sourceOfFundsItems : undefined,
+      timeHorizonMinYears: requiresAccountSuitability ? request.suitability?.timeHorizonMinYears : undefined,
+      timeHorizonMaxYears: requiresAccountSuitability ? request.suitability?.timeHorizonMaxYears : undefined,
+      dividendReinvestmentInstruction: requiresAccountSuitability
+        ? request.suitability?.dividendReinvestmentInstruction
+        : undefined,
     });
     createdHarborAccountId = createdAccount.accountId;
   } catch (error: unknown) {

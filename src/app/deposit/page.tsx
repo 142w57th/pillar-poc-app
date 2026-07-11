@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 
@@ -42,6 +42,7 @@ function formatCurrency(value: number) {
 }
 
 export default function DepositPage() {
+  const queryClient = useQueryClient();
   const [destinationAccountId, setDestinationAccountId] = useState("");
   const [sourcePaymentAccountId, setSourcePaymentAccountId] = useState("");
   const [amountInput, setAmountInput] = useState("");
@@ -96,6 +97,17 @@ export default function DepositPage() {
       return response.data;
     },
     onSuccess: (data) => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-for-withdraw"] }),
+        queryClient.invalidateQueries({ queryKey: ["balances-buying-power"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions"] }),
+        queryClient.invalidateQueries({ queryKey: ["holdings-live-quotes"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["withdraw-payment-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["deposit-destination-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["withdraw-destination-accounts"] }),
+      ]);
       setIsSubmitSuccess(true);
       setSubmittedAmount(data.deposit.amountUsd);
       setLastResultTone("positive");

@@ -12,7 +12,7 @@ export type TradeOrderSubmitRequest = {
   instrumentSymbol: string;
   assetClass: TradeAssetClass;
   side: TradeSide;
-  amountUsd: number;
+  quantity: number;
   pricePerUnit: number;
   eventSide?: EventSide;
   externalId?: string;
@@ -99,7 +99,7 @@ type HarborCreateMarketOrderRequest = {
     side: TradeSide;
     assetClass: HarborAssetClass;
     amount: {
-      notionalAmount: string;
+      quantity: string;
     };
   };
   meta: Record<string, never>;
@@ -113,8 +113,8 @@ function mapAssetClassToHarbor(assetClass: TradeAssetClass): HarborAssetClass {
   );
 }
 
-function toNotionalAmount(amountUsd: number) {
-  return amountUsd.toFixed(2);
+function toQuantity(quantity: number) {
+  return String(quantity);
 }
 
 function toAssetIdentifier(input: TradeOrderSubmitRequest) {
@@ -137,7 +137,7 @@ function toHarborMarketOrderRequest(
       side: input.side,
       assetClass: mapAssetClassToHarbor(input.assetClass),
       amount: {
-        notionalAmount: toNotionalAmount(input.amountUsd),
+        quantity: toQuantity(input.quantity),
       },
     },
     meta: {},
@@ -245,7 +245,7 @@ function normalizeHarborOrderResult(
       providerReferenceCandidate
         ? providerReferenceCandidate
         : undefined,
-    estimatedUnits: Number((input.amountUsd / input.pricePerUnit).toFixed(8)),
+    estimatedUnits: Number(input.quantity.toFixed(8)),
   };
 }
 

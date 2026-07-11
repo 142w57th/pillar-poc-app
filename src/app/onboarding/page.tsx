@@ -35,6 +35,8 @@ const ACCOUNT_TEMPLATE_UI_META: Record<string, Omit<AccountTypeOption, "id">> = 
     emoji: "⚡",
   },
 };
+const EQUITY_ACCOUNT_TEMPLATE_CODE = "RETAIL_SELF_DIRECTED_STANDARD";
+const CRYPTO_ACCOUNT_TEMPLATE_CODE = "DIGITAL_ASSETS_STANDARD";
 
 function formatTemplateCodeLabel(code: string) {
   return code
@@ -223,9 +225,14 @@ export default function OnboardingPage() {
   }, [onboardingStatus]);
 
   const clientOnboarded = onboardingStatus?.clientOnboarded ?? false;
+  const selectedAccountRequiresAccountSuitability = selectedAccountType === EQUITY_ACCOUNT_TEMPLATE_CODE;
+  const shouldSkipSuitabilityStep = clientOnboarded && selectedAccountType === CRYPTO_ACCOUNT_TEMPLATE_CODE;
 
   const steps: StepDef[] = useMemo(() => {
     if (clientOnboarded) {
+      if (shouldSkipSuitabilityStep) {
+        return [{ key: "accountType", label: "Account Type" }];
+      }
       return [
         { key: "accountType", label: "Account Type" },
         { key: "suitability", label: "Suitability" },
@@ -236,7 +243,7 @@ export default function OnboardingPage() {
       { key: "personalInfo", label: "Personal Info" },
       { key: "suitability", label: "Suitability" },
     ];
-  }, [clientOnboarded]);
+  }, [clientOnboarded, shouldSkipSuitabilityStep]);
 
   const maxStepIndex = Math.max(steps.length - 1, 0);
   const clampedStepIndex = Math.min(stepIndex, maxStepIndex);
@@ -317,7 +324,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    if (firstSelectableAccountType) {
+    if (!selectedAccountType && firstSelectableAccountType) {
       setSelectedAccountType(firstSelectableAccountType.id);
     }
 
@@ -330,7 +337,7 @@ export default function OnboardingPage() {
         lastName: "Morgan",
         taxId: "123456789",
         dateOfBirth: "2000-01-15",
-        email: "alex.morgan@example.com",
+        email: "alex.morgan@gmail.com",
         phoneCountryCode: "+1",
         phoneNumber: "4155550199",
         legalAddressLine1: "123 Market Street",
@@ -380,6 +387,7 @@ export default function OnboardingPage() {
     personalInfo.legalAddressLine1.trim() !== "" &&
     personalInfo.legalAddressCity.trim() !== "";
   const requiresPartySuitability = !clientOnboarded;
+  const requiresAccountSuitability = selectedAccountRequiresAccountSuitability;
   const hasAnyBusinessAddressField =
     suitability.businessAddress.trim() !== "" ||
     suitability.businessRegion.trim() !== "" ||
@@ -389,50 +397,62 @@ export default function OnboardingPage() {
     suitability.businessRegion.trim() !== "" &&
     suitability.businessPostalCode.trim() !== "";
   const isBusinessAddressSectionValid = !hasAnyBusinessAddressField || hasCompleteBusinessAddressFields;
-  const canSubmitSuitability =
-    (!requiresPartySuitability ||
-      (suitability.employmentType !== "" &&
-        suitability.annualIncome.trim() !== "" &&
-        suitability.liquidNetWorth.trim() !== "" &&
-        suitability.totalNetWorth.trim() !== "" &&
-        isBusinessAddressSectionValid)) &&
-    suitability.investmentObjectives.length > 0 &&
-    suitability.sourceOfFundsItems.length > 0 &&
-    suitability.riskTolerance !== "";
+  const partySuitabilityValid =
+    !requiresPartySuitability ||
+    (suitability.employmentType !== "" &&
+      suitability.annualIncome.trim() !== "" &&
+      suitability.liquidNetWorth.trim() !== "" &&
+      suitability.totalNetWorth.trim() !== "" &&
+      isBusinessAddressSectionValid);
+  const accountSuitabilityValid =
+    !requiresAccountSuitability ||
+    (suitability.investmentObjectives.length > 0 &&
+      suitability.sourceOfFundsItems.length > 0 &&
+      suitability.riskTolerance !== "");
+  const canSubmitSuitability = partySuitabilityValid && accountSuitabilityValid;
 
   const handleSubmit = async () => {
     if (!selectedAccountType) return;
 
+    const suitabilityPayload: CreateAccountRequestPayload["suitability"] =
+      requiresPartySuitability || requiresAccountSuitability
+        ? {
+            employmentType: suitability.employmentType || undefined,
+            occupation: suitability.occupation || undefined,
+            businessType: suitability.businessType || undefined,
+            employer: suitability.employer || undefined,
+            businessPhone:
+              suitability.businessPhoneCountryCode.trim() !== "" || suitability.businessPhoneNumber.trim() !== ""
+                ? `${suitability.businessPhoneCountryCode.trim()} ${suitability.businessPhoneNumber.trim()}`.trim()
+                : suitability.businessPhone || undefined,
+            businessPhoneCountryCode: suitability.businessPhoneCountryCode || undefined,
+            businessPhoneNumber: suitability.businessPhoneNumber || undefined,
+            businessAddress: suitability.businessAddress || undefined,
+            businessRegion: suitability.businessRegion || undefined,
+            businessPostalCode: suitability.businessPostalCode || undefined,
+            annualIncome: suitability.annualIncome || undefined,
+            liquidNetWorth: suitability.liquidNetWorth || undefined,
+            totalNetWorth: suitability.totalNetWorth || undefined,
+            ...(requiresAccountSuitability
+              ? {
+                  sourceOfFunds: suitability.sourceOfFunds || undefined,
+                  sourceOfFundsItems:
+                    suitability.sourceOfFundsItems.length > 0 ? suitability.sourceOfFundsItems : undefined,
+                  timeHorizonMinYears: suitability.timeHorizonMinYears || undefined,
+                  timeHorizonMaxYears: suitability.timeHorizonMaxYears || undefined,
+                  dividendReinvestmentInstruction: suitability.dividendReinvestmentInstruction || undefined,
+                  investmentObjective: suitability.investmentObjectives[0] || suitability.investmentObjective,
+                  investmentObjectives:
+                    suitability.investmentObjectives.length > 0 ? suitability.investmentObjectives : undefined,
+                  riskTolerance: suitability.riskTolerance || undefined,
+                }
+              : {}),
+          }
+        : undefined;
+
     const payload: CreateAccountRequestPayload = {
       accountType: selectedAccountType,
-      suitability: {
-        employmentType: suitability.employmentType,
-        occupation: suitability.occupation || undefined,
-        businessType: suitability.businessType || undefined,
-        employer: suitability.employer || undefined,
-        businessPhone:
-          suitability.businessPhoneCountryCode.trim() !== "" || suitability.businessPhoneNumber.trim() !== ""
-            ? `${suitability.businessPhoneCountryCode.trim()} ${suitability.businessPhoneNumber.trim()}`.trim()
-            : suitability.businessPhone || undefined,
-        businessPhoneCountryCode: suitability.businessPhoneCountryCode || undefined,
-        businessPhoneNumber: suitability.businessPhoneNumber || undefined,
-        businessAddress: suitability.businessAddress || undefined,
-        businessRegion: suitability.businessRegion || undefined,
-        businessPostalCode: suitability.businessPostalCode || undefined,
-        annualIncome: suitability.annualIncome || undefined,
-        liquidNetWorth: suitability.liquidNetWorth || undefined,
-        totalNetWorth: suitability.totalNetWorth || undefined,
-        sourceOfFunds: suitability.sourceOfFunds || undefined,
-        sourceOfFundsItems:
-          suitability.sourceOfFundsItems.length > 0 ? suitability.sourceOfFundsItems : undefined,
-        timeHorizonMinYears: suitability.timeHorizonMinYears || undefined,
-        timeHorizonMaxYears: suitability.timeHorizonMaxYears || undefined,
-        dividendReinvestmentInstruction: suitability.dividendReinvestmentInstruction || undefined,
-        investmentObjective: suitability.investmentObjectives[0] || suitability.investmentObjective,
-        investmentObjectives:
-          suitability.investmentObjectives.length > 0 ? suitability.investmentObjectives : undefined,
-        riskTolerance: suitability.riskTolerance,
-      },
+      ...(suitabilityPayload ? { suitability: suitabilityPayload } : {}),
     };
 
     if (!clientOnboarded) {
@@ -935,96 +955,107 @@ export default function OnboardingPage() {
                   </p>
                 </div>
               )}
-              <div className="block @md:col-span-2">
-                <span className={FIELD_LABEL_CLASS}>Source Of Funds *</span>
-                <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-2">
-                  {[
-                    "Wage Income",
-                    "Pension / Retirement",
-                    "Funds From Another Account",
-                    "Savings",
-                    "Sale Of Business Or Property",
-                    "Insurance Payout",
-                    "Gift / Inheritance",
-                    "Other",
-                  ].map((option) => (
-                    <label key={option} className="border-app bg-surface-2 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={suitability.sourceOfFundsItems.includes(option)}
-                        onChange={() => toggleSuitabilityArrayValue("sourceOfFundsItems", option)}
-                      />
-                      <span className="text-app-primary">{option}</span>
-                    </label>
-                  ))}
+              {requiresAccountSuitability ? (
+                <>
+                  <div className="block @md:col-span-2">
+                    <span className={FIELD_LABEL_CLASS}>Source Of Funds *</span>
+                    <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-2">
+                      {[
+                        "Wage Income",
+                        "Pension / Retirement",
+                        "Funds From Another Account",
+                        "Savings",
+                        "Sale Of Business Or Property",
+                        "Insurance Payout",
+                        "Gift / Inheritance",
+                        "Other",
+                      ].map((option) => (
+                        <label key={option} className="border-app bg-surface-2 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={suitability.sourceOfFundsItems.includes(option)}
+                            onChange={() => toggleSuitabilityArrayValue("sourceOfFundsItems", option)}
+                          />
+                          <span className="text-app-primary">{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="block">
+                    <span className={FIELD_LABEL_CLASS}>Dividend Instruction</span>
+                    <select
+                      className={`${SELECT_CLASS} mt-2`}
+                      value={suitability.dividendReinvestmentInstruction}
+                      onChange={(e) => setSuitabilityField("dividendReinvestmentInstruction", e.target.value)}
+                    >
+                      <option value="">Select...</option>
+                      <option>Reinvest</option>
+                      <option>Cash in Account</option>
+                      <option>Monthly Check</option>
+                      <option>ACH</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className={FIELD_LABEL_CLASS}>Time Horizon Min (Years)</span>
+                    <input
+                      className={`${INPUT_CLASS} mt-2`}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="e.g., 1"
+                      value={suitability.timeHorizonMinYears}
+                      onChange={(e) =>
+                        setSuitabilityField("timeHorizonMinYears", normalizeWholeNumberInput(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={FIELD_LABEL_CLASS}>Time Horizon Max (Years)</span>
+                    <input
+                      className={`${INPUT_CLASS} mt-2`}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="e.g., 10"
+                      value={suitability.timeHorizonMaxYears}
+                      onChange={(e) =>
+                        setSuitabilityField("timeHorizonMaxYears", normalizeWholeNumberInput(e.target.value))
+                      }
+                    />
+                  </label>
+                  <div className="block @md:col-span-2">
+                    <span className={FIELD_LABEL_CLASS}>Investment Objectives *</span>
+                    <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-2">
+                      {["Income", "Growth", "Speculation", "Trading"].map((option) => (
+                        <label key={option} className="border-app bg-surface-2 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={suitability.investmentObjectives.includes(option)}
+                            onChange={() => toggleSuitabilityArrayValue("investmentObjectives", option)}
+                          />
+                          <span className="text-app-primary">{option}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="block @md:col-span-2">
+                    <span className={FIELD_LABEL_CLASS}>Risk Tolerance *</span>
+                    <select className={`${SELECT_CLASS} mt-2`} value={suitability.riskTolerance} onChange={(e) => setSuitabilityField("riskTolerance", e.target.value)}>
+                      <option value="">Select...</option>
+                      <option>Low</option>
+                      <option>Moderate</option>
+                      <option>High</option>
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <div className="border-app bg-surface-2 @md:col-span-2 rounded-xl border p-4">
+                  <p className="text-app-primary text-sm font-semibold">Account suitability details</p>
+                  <p className="text-app-secondary mt-1 text-sm">
+                    Investment profile and funding fields are not required for crypto account creation.
+                  </p>
                 </div>
-              </div>
-              <label className="block">
-                <span className={FIELD_LABEL_CLASS}>Dividend Instruction</span>
-                <select
-                  className={`${SELECT_CLASS} mt-2`}
-                  value={suitability.dividendReinvestmentInstruction}
-                  onChange={(e) => setSuitabilityField("dividendReinvestmentInstruction", e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  <option>Reinvest</option>
-                  <option>Cash in Account</option>
-                  <option>Monthly Check</option>
-                  <option>ACH</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className={FIELD_LABEL_CLASS}>Time Horizon Min (Years)</span>
-                <input
-                  className={`${INPUT_CLASS} mt-2`}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="e.g., 1"
-                  value={suitability.timeHorizonMinYears}
-                  onChange={(e) =>
-                    setSuitabilityField("timeHorizonMinYears", normalizeWholeNumberInput(e.target.value))
-                  }
-                />
-              </label>
-              <label className="block">
-                <span className={FIELD_LABEL_CLASS}>Time Horizon Max (Years)</span>
-                <input
-                  className={`${INPUT_CLASS} mt-2`}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="e.g., 10"
-                  value={suitability.timeHorizonMaxYears}
-                  onChange={(e) =>
-                    setSuitabilityField("timeHorizonMaxYears", normalizeWholeNumberInput(e.target.value))
-                  }
-                />
-              </label>
-              <div className="block @md:col-span-2">
-                <span className={FIELD_LABEL_CLASS}>Investment Objectives *</span>
-                <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-2">
-                  {["Income", "Growth", "Speculation", "Trading"].map((option) => (
-                    <label key={option} className="border-app bg-surface-2 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={suitability.investmentObjectives.includes(option)}
-                        onChange={() => toggleSuitabilityArrayValue("investmentObjectives", option)}
-                      />
-                      <span className="text-app-primary">{option}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <label className="block @md:col-span-2">
-                <span className={FIELD_LABEL_CLASS}>Risk Tolerance *</span>
-                <select className={`${SELECT_CLASS} mt-2`} value={suitability.riskTolerance} onChange={(e) => setSuitabilityField("riskTolerance", e.target.value)}>
-                  <option value="">Select...</option>
-                  <option>Low</option>
-                  <option>Moderate</option>
-                  <option>High</option>
-                </select>
-              </label>
+              )}
             </div>
           </div>
         )}

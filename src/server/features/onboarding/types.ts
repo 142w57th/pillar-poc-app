@@ -42,8 +42,8 @@ export type CreateAccountRequest = {
       countryCode: string;
     };
   };
-  suitability: {
-    employmentType: string;
+  suitability?: {
+    employmentType?: string;
     occupation?: string;
     businessType?: string;
     employer?: string;
@@ -56,14 +56,15 @@ export type CreateAccountRequest = {
     annualIncome?: string;
     liquidNetWorth?: string;
     totalNetWorth?: string;
+    marginalTaxRate?: string;
     sourceOfFunds?: string;
     sourceOfFundsItems?: string[];
     timeHorizonMinYears?: string;
     timeHorizonMaxYears?: string;
     dividendReinvestmentInstruction?: string;
-    investmentObjective: string;
+    investmentObjective?: string;
     investmentObjectives?: string[];
-    riskTolerance: string;
+    riskTolerance?: string;
   };
 };
 
